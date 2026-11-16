@@ -80,8 +80,24 @@ class CoreTextsTest {
         assertEquals("12:41 PM ET", ExchangeTime.format(t, "America/Toronto", t + 60_000))
         assertEquals("12:41 PM ET", ExchangeTime.format(t, "America/New_York", t + 60_000))
         assertEquals("5:41 PM GMT", ExchangeTime.format(t, "Europe/London", t + 60_000))
-        assertEquals("5:41 PM UTC", ExchangeTime.format(t, null, t + 60_000))
-        assertEquals("5:41 PM UTC", ExchangeTime.format(t, "Not/AZone", t + 60_000))
+    }
+
+    @Test fun anUnknownZoneNeverClaimsToBeUtc() {
+        val t = utc(2026, 11, 16, 17, 41)
+        val utcZone = java.time.ZoneOffset.UTC
+        assertEquals("5:41 PM", ExchangeTime.format(t, null, t + 60_000, fallback = utcZone))
+        assertEquals("5:41 PM", ExchangeTime.format(t, "Not/AZone", t + 60_000, fallback = utcZone))
+        assertEquals("", ExchangeTime.zoneLabel(null, java.time.Instant.ofEpochMilli(t)))
+        assertEquals("", ExchangeTime.zoneLabel("Not/AZone", java.time.Instant.ofEpochMilli(t)))
+        assertEquals("UTC", ExchangeTime.zoneLabel("UTC", java.time.Instant.ofEpochMilli(t)))
+    }
+
+    @Test fun chartLabelsFollowTheRangeStyle() {
+        val t = utc(2026, 11, 16, 17, 41)
+        assertEquals("12:41 PM ET", ExchangeTime.chartLabel(t, "America/Toronto", ExchangeTime.ChartStyle.Time))
+        assertEquals("Mon 12:41 PM ET", ExchangeTime.chartLabel(t, "America/Toronto", ExchangeTime.ChartStyle.DayTime))
+        assertEquals("Nov 16", ExchangeTime.chartLabel(t, "America/Toronto", ExchangeTime.ChartStyle.Date))
+        assertEquals("Nov 16, 2026", ExchangeTime.chartLabel(t, "America/Toronto", ExchangeTime.ChartStyle.DateYear))
     }
 
     @Test fun summerTimeStillSaysET() {

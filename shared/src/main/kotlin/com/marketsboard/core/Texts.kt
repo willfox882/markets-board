@@ -118,31 +118,55 @@ object ExchangeTime {
         "PT" to setOf("America/Los_Angeles", "America/Vancouver", "US/Pacific"),
     )
 
+    enum class ChartStyle { Time, DayTime, Date, DateYear }
+
+    /** Axis label of a chart point in the exchange zone: "9:30 AM", "Mon 9:30 AM", "Nov 16" or "Nov 16, 2026". Zone label only on times. */
+    fun chartLabel(epochMs: Long, tzName: String?, style: ChartStyle, fallback: ZoneId = ZoneId.systemDefault()): String {
+        val at = Instant.ofEpochMilli(epochMs)
+        val z = if (isKnown(tzName)) zone(tzName) else fallback
+        val t = ZonedDateTime.ofInstant(at, z)
+        val label = if (isKnown(tzName)) zoneLabel(tzName, at) else ""
+        val body = when (style) {
+            ChartStyle.Time -> CLOCK.format(t)
+            ChartStyle.DayTime -> DAY_CLOCK.format(t)
+            ChartStyle.Date -> DateTimeFormatter.ofPattern("MMM d", Locale.US).format(t)
+            ChartStyle.DateYear -> DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US).format(t)
+        }
+        return if (label.isEmpty() || style == ChartStyle.Date || style == ChartStyle.DateYear) body else "$body $label"
+    }
+
     fun zone(name: String?): ZoneId = try {
         if (name.isNullOrBlank()) ZoneOffset.UTC else ZoneId.of(name)
     } catch (e: Exception) {
         ZoneOffset.UTC
     }
 
-    /** "ET", "CT"... for North American zones; the JDK short name ("GMT", "BST", "JST") otherwise; "UTC" when unknown. */
+    /** True when [name] is a zone this JVM knows. */
+    fun isKnown(name: String?): Boolean = !name.isNullOrBlank() && try { ZoneId.of(name); true } catch (e: Exception) { false }
+
+    /**
+     * "ET", "CT"... for North American zones; the JDK short name ("GMT", "BST", "JST") otherwise; empty when the zone
+     * is unknown (an invented "UTC" label would be wrong).
+     */
     fun zoneLabel(name: String?, at: Instant): String {
-        if (name.isNullOrBlank() || zone(name) == ZoneOffset.UTC) return "UTC"
+        if (!isKnown(name)) return ""
         NORTH_AMERICA.entries.firstOrNull { name in it.value }?.let { return it.key }
         return try {
             DateTimeFormatter.ofPattern("zzz", Locale.US).format(ZonedDateTime.ofInstant(at, zone(name)))
         } catch (e: Exception) {
-            "UTC"
+            ""
         }
     }
 
     /**
      * "12:41 PM ET" for a time in the current exchange day, "Fri 4:00 PM ET" within the last week, "Mar 4, 4:00 PM ET"
      * beyond that. [nowWallMs] is only used to pick the form; when the device clock is wrong ([clockSkew]) the
-     * weekday form is used so no wrong "today" is implied.
+     * full-date form is used so no wrong "today" is implied.
      */
-    fun format(epochMs: Long, tzName: String?, nowWallMs: Long, clockSkew: Boolean = false): String {
+    fun format(epochMs: Long, tzName: String?, nowWallMs: Long, clockSkew: Boolean = false, fallback: ZoneId = ZoneId.systemDefault()): String {
         val at = Instant.ofEpochMilli(epochMs)
-        val z = zone(tzName)
+        // Unknown zone: show the time in the device's own zone WITHOUT a zone label rather than claim a zone we do not know.
+        val z = if (isKnown(tzName)) zone(tzName) else fallback
         val t = ZonedDateTime.ofInstant(at, z)
         val label = zoneLabel(tzName, at)
         val now = ZonedDateTime.ofInstant(Instant.ofEpochMilli(nowWallMs), z)
@@ -153,6 +177,6 @@ object ExchangeTime {
             daysAgo in 1..6 -> DAY_CLOCK.format(t)
             else -> FULL.format(t)
         }
-        return "$body $label"
+        return if (label.isEmpty()) body else "$body $label"
     }
 }

@@ -50,11 +50,11 @@ class MainActivity : ComponentActivity() {
     /** Refreshing runs only while the Activity is resumed (see RefreshController). */
     override fun onResume() {
         super.onResume()
-        (application as MarketsBoardApplication).runtime?.active?.value = true
+        (application as MarketsBoardApplication).runtime?.gate?.resume()
     }
 
     override fun onPause() {
-        (application as MarketsBoardApplication).runtime?.active?.value = false
+        (application as MarketsBoardApplication).runtime?.gate?.pause()
         super.onPause()
     }
 

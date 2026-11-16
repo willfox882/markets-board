@@ -16,6 +16,7 @@ The jar bundles the Windows and Linux Skia renderers only (no macOS), so it runs
   - **Provider behaviour**: Normal, Slow, Offline, Rate limited, Partial failure, Bad data. Press Refresh in the app (or wait for the next poll) to see rows go stale, dim and amber, then recover.
   - **Latency** slider (0 to 8 s per call).
   - **Clock skew**: the device clock goes 45 min behind the data, which shows the "Check the date and time" banner.
+  - **Glance mode**: the minimal view (name, price, change; no editor or detail).
   - **App active**: off pauses all refreshing exactly like a paused Activity.
   - **Time speed** x1 / x10 / x60: runs the data, ages, cooldowns and refresh delays faster, so the 60 s / 5 min policy and the stale timeouts can be watched in seconds.
   - **Simulate hotspot drop (20 s)**: Offline for 20 s, then back to the selected behaviour.
@@ -32,4 +33,4 @@ Look at every PNG after any UI change.
 ## Layout
 `sandbox/src/main/kotlin/com/marketsboard/sandbox/`: `SandboxApp.kt`, `SandboxEnv.kt`, `ControlPanel.kt`, `FakeMarketDataProvider.kt`, `ScreenshotFixtures.kt`, `Screenshots.kt`, `Fonts.kt`, `Main.kt`. Tests: `sandbox/src/test/.../{RenderTest,MarketsRenderTest,SandboxEnvTest,FakeMarketDataProviderTest,JvmHttpFetcherTest}.kt`.
 
-Screenshots (`./gradlew :sandbox:screenshots`): markets_normal, markets_mixed (stale, failed, loading, rate limited), markets_six (FX, 6-digit price, long name), markets_skew_stale, markets_empty, markets_editor, markets_confirm_remove, detail_1d, detail_1y, detail_loading, detail_error, add_results, add_suggestions, add_offline, replace, news, settings. They are built from `ScreenshotFixtures` (fake provider at a fixed time through the real `UiMapper`), so they are deterministic.
+Screenshots (`./gradlew :sandbox:screenshots`): markets_normal, markets_mixed (stale, failed, loading, rate limited), markets_six (FX, 6-digit price, long name), markets_skew_stale, markets_empty, markets_editor, markets_confirm_remove, detail_1d, detail_1y, detail_loading, detail_error, detail_chart_stale, markets_glance, add_results, add_suggestions, add_offline, replace, news, settings. They are built from `ScreenshotFixtures` (fake provider at a fixed time through the real `UiMapper`), so they are deterministic.

@@ -41,14 +41,14 @@ class MarketsPresenterTest {
         override fun refresh(symbol: String) { all += symbol }
     }
 
-    private class Rig(scope: TestScope, file: File = File(tempDir(), "watchlist.json")) {
+    private class Rig(scope: TestScope, file: File = File(tempDir(), "watchlist.json"), io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Unconfined) {
         val clock = VirtualClock(scope.testScheduler)
         val store = WatchlistStore(file, clock)
         val quotes = FakeQuotesSource(clock)
         val provider = FakeProvider(clock)
         val refresher = RecordingRefresher()
         val data = MarketsData(store, quotes, provider)
-        val p = MarketsPresenter(scope.backgroundScope, data, refresher, clock, Dispatchers.Unconfined, searchDebounceMs = 400)
+        val p = MarketsPresenter(scope.backgroundScope, data, refresher, clock, io, searchDebounceMs = 400)
         val symbols get() = store.items.value.map { it.symbol }
         val ui get() = p.state.value
     }
@@ -335,8 +335,7 @@ class MarketsPresenterTest {
     @Test fun invalidSymbolIsExplained() = runTest {
         val r = Rig(this)
         r.p.onAddOpen()
-        r.p.onQueryChange("bad symbol!")
-        r.p.onSubmitTyped()
+        r.p.onPickResult("bad symbol!")
         runCurrent()
         assertEquals(listOf("XEQT.TO", "MSFT"), r.symbols)
         assertTrue(r.ui.add!!.message!!.text.contains("not a valid symbol"))
@@ -360,7 +359,7 @@ class MarketsPresenterTest {
         val r = Rig(this)
         r.provider.quoteFn = { _, _ -> err(ErrorKind.Network) }
         r.p.onAddOpen()
-        r.p.onQueryChange("shop.to")
+        r.p.onQueryChange("SHOP.TO")
         r.p.onSubmitTyped()
         runCurrent()
         val m = r.ui.add!!.message!!
@@ -392,7 +391,7 @@ class MarketsPresenterTest {
     @Test fun doneWithATypedSymbolAndNoResultsTriesItDirectlyAndCloses() = runTest {
         val r = Rig(this)
         r.p.onAddOpen()
-        r.p.onQueryChange("nvda")
+        r.p.onQueryChange("NVDA")
         r.p.onSubmitTyped() // before any search answered
         runCurrent()
         assertEquals(listOf("XEQT.TO", "MSFT", "NVDA"), r.symbols)
@@ -545,5 +544,143 @@ class MarketsPresenterTest {
         assertNull(r.ui.detail)
         assertNull(r.ui.add)
         assertEquals(listOf("XEQT.TO", "AAPL"), r.symbols)
+    }
+
+    // ---- audit round: search races, Done semantics, duplicates, glance --------------------------------------
+
+    @Test fun duplicateSearchResultsAreCollapsedSoKeysStayUnique() = runTest {
+        val r = Rig(this)
+        r.provider.searchFn = { FetchResult.Ok(listOf(shop, shop.copy(exchange = "CDNX"), aapl)) }
+        r.p.onAddOpen()
+        r.p.onQueryChange("sh")
+        advanceTimeBy(500); runCurrent()
+        assertEquals(listOf("SHOP.TO", "AAPL"), r.ui.add!!.results.map { it.symbol })
+    }
+
+    @Test fun doneWithANameAndResultsPicksTheFirstResult() = runTest {
+        val r = Rig(this)
+        r.provider.searchFn = { FetchResult.Ok(listOf(shop, aapl)) }
+        r.p.onAddOpen()
+        r.p.onQueryChange("shopify")
+        advanceTimeBy(500); runCurrent()
+        r.p.onSubmitTyped()
+        runCurrent()
+        assertEquals(listOf("XEQT.TO", "MSFT", "SHOP.TO"), r.symbols)
+        assertEquals(listOf("SHOP.TO"), r.provider.quotes) // the ticker is never guessed from the typed words
+        assertNull(r.ui.add)
+    }
+
+    @Test fun doneWithANameWhileTheSearchIsPendingOnlyShowsAHint() = runTest {
+        val r = Rig(this)
+        r.provider.searchFn = { FetchResult.Ok(listOf(shop)) }
+        r.p.onAddOpen()
+        r.p.onQueryChange("shopify")
+        runCurrent() // still inside the debounce
+        r.p.onSubmitTyped()
+        runCurrent()
+        assertEquals(2, r.symbols.size)
+        assertTrue(r.provider.quotes.isEmpty())
+        assertTrue(r.ui.add!!.message!!.text.contains("Still searching"))
+        assertFalse(r.ui.add!!.message!!.warn)
+        assertNotNull(r.ui.add) // sheet stays open
+    }
+
+    @Test fun doneWithANameAndNoMatchesNeverAddsAGuessedTicker() = runTest {
+        val r = Rig(this)
+        r.p.onAddOpen()
+        r.p.onQueryChange("zzz corp")
+        advanceTimeBy(500); runCurrent()
+        r.p.onSubmitTyped()
+        runCurrent()
+        assertEquals(2, r.symbols.size)
+        assertTrue(r.provider.quotes.isEmpty())
+        assertTrue(r.ui.add!!.message!!.text.contains("capital letters"))
+    }
+
+    @Test fun lowercaseTickerIsTreatedAsAName() = runTest {
+        val r = Rig(this)
+        r.p.onAddOpen()
+        r.p.onQueryChange("nvda")
+        r.p.onSubmitTyped()
+        runCurrent()
+        assertEquals(2, r.symbols.size)
+    }
+
+    @Test fun aSymbolShapedEntryPrefersAResultWithExactlyThatSymbol() = runTest {
+        val r = Rig(this)
+        r.provider.searchFn = { FetchResult.Ok(listOf(Instrument("AAPL.MX", "Apple Mexico", "MXN", "Mexico", "EQUITY"), aapl)) }
+        r.p.onAddOpen()
+        r.p.onQueryChange("AAPL")
+        advanceTimeBy(500); runCurrent()
+        r.p.onSubmitTyped()
+        runCurrent()
+        assertEquals(listOf("XEQT.TO", "MSFT", "AAPL"), r.symbols)
+    }
+
+    @Test fun doneUsesOnlyResultsThatAnswerTheCurrentText() = runTest {
+        val r = Rig(this)
+        r.provider.searchFn = { q -> FetchResult.Ok(if (q == "shopify") listOf(shop) else listOf(aapl)) }
+        r.p.onAddOpen()
+        r.p.onQueryChange("shopify")
+        advanceTimeBy(500); runCurrent()
+        r.p.onQueryChange("apple inc") // results on screen are for "shopify": must not be picked
+        runCurrent()
+        r.p.onSubmitTyped()
+        runCurrent()
+        assertEquals(2, r.symbols.size)
+        assertTrue(r.ui.add!!.message!!.text.contains("Still searching"))
+    }
+
+    @Test fun whatTheUserTypedWhileAnAddWasInFlightIsKept() = runTest {
+        val r = Rig(this, io = kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler))
+        r.provider.quoteDelayMs = 1_000
+        r.provider.quoteFn = { s, rg -> FetchResult.Ok(quoteOf(s, 150.0, range = rg, currency = "CAD", name = "Shopify Inc.")) }
+        r.p.onAddOpen()
+        r.p.onQueryChange("shop")
+        r.p.onPickResult("SHOP.TO")
+        runCurrent()
+        assertTrue(r.ui.add!!.busy)
+        r.p.onQueryChange("apple")
+        runCurrent()
+        advanceTimeBy(1_100); runCurrent()
+        assertEquals(listOf("XEQT.TO", "MSFT", "SHOP.TO"), r.symbols)
+        assertEquals("apple", r.ui.add!!.query)
+        assertEquals("Added Shopify Inc.", r.ui.add!!.message!!.text)
+    }
+
+    @Test fun anOlderSearchAnswerArrivingLateNeverReplacesNewerResults() = runTest {
+        val r = Rig(this)
+        r.provider.lateSearchDelays = mapOf("sh" to 3_000L) // cannot be cancelled: it will answer late
+        r.provider.searchFn = { q -> FetchResult.Ok(if (q == "sh") listOf(shop) else listOf(aapl)) }
+        r.p.onAddOpen()
+        r.p.onQueryChange("sh")
+        advanceTimeBy(500); runCurrent()
+        r.p.onQueryChange("app")
+        advanceTimeBy(500); runCurrent()
+        assertEquals(listOf("AAPL"), r.ui.add!!.results.map { it.symbol })
+        advanceTimeBy(5_000); runCurrent()
+        assertEquals(listOf("AAPL"), r.ui.add!!.results.map { it.symbol })
+        assertEquals("app", r.ui.add!!.query)
+    }
+
+    @Test fun glanceModeHidesEditorAndDetailAndIgnoresTheirActions() = runTest {
+        val mode = kotlinx.coroutines.flow.MutableStateFlow(com.marketsboard.ui.UiMode.Normal)
+        val clock = VirtualClock(testScheduler)
+        val store = WatchlistStore(File(tempDir(), "watchlist.json"), clock)
+        val p = MarketsPresenter(backgroundScope, MarketsData(store, FakeQuotesSource(clock), FakeProvider(clock)), Refresher.None, clock, Dispatchers.Unconfined, mode = mode)
+        runCurrent()
+        p.onOpen("MSFT"); p.onToggleEdit()
+        runCurrent()
+        assertNotNull(p.state.value.detail)
+        mode.value = com.marketsboard.ui.UiMode.Glance
+        runCurrent()
+        val g = p.state.value
+        assertEquals(com.marketsboard.ui.UiMode.Glance, g.mode)
+        assertNull(g.detail); assertFalse(g.editMode); assertNull(g.add)
+        assertEquals(2, g.quotes.size) // rows stay
+        p.onOpen("MSFT"); p.onToggleEdit(); p.onAddOpen(); p.onReplaceOpen("MSFT")
+        runCurrent()
+        val after = p.state.value
+        assertNull(after.detail); assertFalse(after.editMode); assertNull(after.add)
     }
 }

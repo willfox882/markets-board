@@ -131,9 +131,23 @@ object UiMapper {
         }
         val unit = row.currency
         val dec = row.decimals
+        val tz = qr?.exchangeTimezoneName ?: q1?.exchangeTimezoneName
+        val style = when (range) {
+            ChartRange.D1 -> ExchangeTime.ChartStyle.Time
+            ChartRange.D5 -> ExchangeTime.ChartStyle.DayTime
+            ChartRange.Y1 -> ExchangeTime.ChartStyle.DateYear
+            else -> ExchangeTime.ChartStyle.Date
+        }
+        val pts = qr?.series.orEmpty()
+        val chartNote = when {
+            range == ChartRange.D1 || qr == null || rs == null -> ""
+            rs.lastError != null -> "Chart not refreshed: " + ErrorText.reason(rs.lastError.kind, cooldownMs).replaceFirstChar { it.lowercase() }
+            rs.status is QuoteStatus.Stale -> ageTextOf(rs.status).let { if (it.isEmpty()) "Chart may be out of date" else "Chart updated $it" }
+            else -> ""
+        }
         fun money(v: Double?) = if (v == null) NO_VALUE else formatPrice(v, dec)
         val stats = listOf(
-            DetailStat("Previous close", money(q1?.prevClose), if (q1?.prevClose != null) unit else ""),
+            DetailStat("Prev. session close", money(q1?.prevClose), if (q1?.prevClose != null) unit else ""),
             DetailStat("Market", marketLabel(q1?.marketState)),
             DetailStat("Day high", money(q1?.dayHigh), if (q1?.dayHigh != null) unit else ""),
             DetailStat("Day low", money(q1?.dayLow), if (q1?.dayLow != null) unit else ""),
@@ -149,6 +163,10 @@ object UiMapper {
             range = range, series = series,
             baseline = if (range == ChartRange.D1) (qr?.prevClose ?: q1?.prevClose)?.toFloat() else null,
             chart = chart, chartError = chartError, status = row.status, stats = stats,
+            chartStart = if (pts.size >= 2) ExchangeTime.chartLabel(pts.first().tMs, tz, style) else "",
+            chartEnd = if (pts.size >= 2) "as of " + ExchangeTime.chartLabel(pts.last().tMs, tz, style) else "",
+            rangeHigh = pts.maxOfOrNull { it.close }, rangeLow = pts.minOfOrNull { it.close },
+            chartNote = chartNote,
         )
     }
 

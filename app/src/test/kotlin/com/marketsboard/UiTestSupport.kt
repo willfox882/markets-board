@@ -22,6 +22,20 @@ class VirtualClock(private val scheduler: TestCoroutineScheduler, private val wa
     override fun monoMs(): Long = scheduler.currentTime
 }
 
+/** Wall time = virtual time + time the device 'slept' ([sleep] advances wall time only), monotonic = virtual time. */
+class SplitClock(private val scheduler: TestCoroutineScheduler, private val wallBase: Long = 1_700_000_000_000L) : Clock {
+    private var slept = 0L
+    override fun nowMs(): Long = wallBase + scheduler.currentTime + slept
+    override fun monoMs(): Long = scheduler.currentTime
+    fun sleep(ms: Long) { slept += ms }
+}
+
+class FakeNetwork : com.marketsboard.refresh.NetworkSignal {
+    val flow = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    override val available: kotlinx.coroutines.flow.Flow<Unit> = flow
+    fun back() { flow.tryEmit(Unit) }
+}
+
 data class RefreshCall(val atMs: Long, val symbols: List<String>, val range: ChartRange, val force: Boolean)
 
 /** [QuotesSource] with scripted states that records every call. */
@@ -56,6 +70,8 @@ class FakeQuotesSource(private val clock: Clock) : QuotesSource {
         for (s in symbols) onRefresh(s, range)?.let { put(s, it, range) }
     }
 
+    val shifts = mutableListOf<Long>()
+    override fun ageShift(ms: Long) { shifts += ms }
     override fun recomputeAges() { agesCalls += clock.monoMs() }
     override suspend fun forget(symbol: String) { forgotten += symbol }
 }
@@ -72,14 +88,19 @@ class FakeProvider(
     val searches = mutableListOf<Pair<Long, String>>()
     val quotes = mutableListOf<String>()
     var searchDelayMs = 0L
+    /** Per-query delay that cannot be cancelled (models an answer that arrives late). */
+    var lateSearchDelays: Map<String, Long> = emptyMap()
+    var quoteDelayMs = 0L
 
     override suspend fun quote(symbol: String, range: ChartRange): FetchResult<Quote> {
         quotes += symbol
+        if (quoteDelayMs > 0) delay(quoteDelayMs)
         return quoteFn(symbol, range)
     }
 
     override suspend fun search(query: String): FetchResult<List<Instrument>> {
         searches += clock.monoMs() to query
+        lateSearchDelays[query]?.let { d -> kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { delay(d) } }
         if (searchDelayMs > 0) delay(searchDelayMs)
         return searchFn(query)
     }

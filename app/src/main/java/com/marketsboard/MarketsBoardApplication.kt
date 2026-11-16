@@ -19,14 +19,14 @@ class MarketsBoardApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         graph = try {
-            AppGraph(filesDir)
+            AppGraph(filesDir, AndroidClock)
         } catch (e: Throwable) {
             Log.e("MarketsBoard", "data layer init failed", e)
             null
         }
         runtime = graph?.let {
             try {
-                AppRuntime(it, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+                AppRuntime(it, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate), AndroidClock, ConnectivityNetworkSignal(this))
             } catch (e: Throwable) {
                 Log.e("MarketsBoard", "ui runtime init failed", e)
                 null

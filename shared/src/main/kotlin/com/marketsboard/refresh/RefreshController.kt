@@ -1,6 +1,6 @@
 package com.marketsboard.refresh
 
-import com.marketsboard.core.MarketPhase
+import com.marketsboard.core.PollPolicy
 import com.marketsboard.data.Clock
 import com.marketsboard.data.model.ChartRange
 import com.marketsboard.data.repo.QuotesSource
@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** Manual refresh hooks the UI uses ("Refresh" in the header, "Retry" on a failed row). */
@@ -29,33 +30,44 @@ interface Refresher {
  * it, and the sandbox clock runs that much faster, so the policy behaves identically, just quicker. Production uses 1.
  */
 class RefreshConfig(
-    val liveIntervalMs: Long = 60_000,
-    val closedIntervalMs: Long = 300_000,
+    /** How often the loop wakes up to see which symbols are due (the live interval). */
+    val tickMs: Long = PollPolicy.LIVE_MS,
     /** A symbol is never polled automatically more often than this, whatever else is configured. */
     val minGapMs: Long = 60_000,
     val agesTickMs: Long = 15_000,
+    /** Manual Refresh or Retry presses closer together than this are ignored. */
+    val manualDebounceMs: Long = 5_000,
+    /** A difference between wall and monotonic time larger than this after a pause counts as the device sleeping. */
+    val suspendToleranceMs: Long = 5_000,
     val timeScale: () -> Double = { 1.0 },
 )
 
 /**
- * The refresh policy of the Markets tab (M2). Platform code supplies [isActive] (Android: Activity resumed) and the
- * watchlist symbols; everything else is decided here, so it is testable with a test dispatcher and a fake clock.
+ * The refresh policy of the Markets tab. Platform code supplies [isActive] (Android: Activity resumed), the
+ * watchlist symbols and optionally a [NetworkSignal]; everything else is decided here, so it is testable with a test
+ * dispatcher and a fake clock.
  *
  * Policy:
  * - Only while [isActive]. Going inactive cancels the loop (in-flight fetches included, the repository restores any
  *   Loading state); becoming active again starts over with an immediate pass.
- * - Immediate pass on start, on resume and whenever the watchlist changes: every symbol whose last completed
- *   attempt is at least [RefreshConfig.minGapMs] old (a newly added symbol has none, so it goes at once).
- * - Then a tick every [RefreshConfig.liveIntervalMs]: a symbol is due when its last attempt is at least 60 s old if
- *   it is live (market REGULAR, PRE or POST, or no quote yet, or the last refresh failed) and at least 5 min old
- *   when its market is closed. So with every visible market closed the network sees one pass per 5 minutes.
- * - Never faster than 60 s per symbol for automatic polls. Manual refresh (forced) is the user's call.
- * - While the repository is cooling down after a 429 or 5xx, no automatic pass happens at all (the repository would
- *   only answer "rate limited"); the next tick after the cooldown retries.
- * - At most 4 fetches run at once: the repository enforces it for every pass, which is one `refresh` call.
- * - `recomputeAges()` every 15 s while active, so Fresh turns Stale without a refresh.
+ * - On resume after more than [RefreshConfig.minGapMs] away (wall or monotonic, whichever is larger) every symbol is
+ *   due at once (the minimum gap is ignored), and when the monotonic clock did not count the sleep (wall minus
+ *   monotonic above the tolerance) the held quotes are aged by the difference ([QuotesSource.ageShift]) so they show
+ *   as stale until refreshed. Ages are always recomputed before the first pass.
+ * - Immediate pass on start, resume and whenever the SET of watchlist symbols changes (a pure reorder does nothing,
+ *   not even restart the timer): every symbol whose last completed attempt is at least [RefreshConfig.minGapMs] old.
+ * - Then a tick every [RefreshConfig.tickMs]: a symbol is due per [PollPolicy]: 60 s for a live (REGULAR) market,
+ *   unknown state, no quote yet or a failed last refresh; 5 min for PRE and POST; for a closed market 30 min or the
+ *   next session start when that is sooner. Never faster than 60 s per symbol automatically.
+ * - A network-available signal triggers an immediate pass for symbols with no quote or a failed last refresh,
+ *   ignoring the minimum gap.
+ * - While the repository cools down (429 or 5xx) no automatic pass happens; the next tick after it retries.
+ * - At most 4 fetches at once (the repository enforces it per `refresh` call).
+ * - `recomputeAges()` every 15 s while active.
  * - [onResume] runs at every (re)start of the active loop (Android: `WatchlistStore.flushIfDirty`).
- * Timing uses the injected monotonic clock for decisions and coroutine `delay` for waiting.
+ * - Manual refresh and Retry are forced, still honour the cooldown, and are debounced to one per 5 s.
+ * Timing uses the injected monotonic clock for decisions and coroutine `delay` for waiting. A coroutine `delay` does
+ * not run while the device is in deep sleep; that is covered by the resume rule above.
  */
 class RefreshController(
     private val scope: CoroutineScope,
@@ -65,22 +77,36 @@ class RefreshController(
     private val clock: Clock,
     private val config: RefreshConfig = RefreshConfig(),
     private val onResume: () -> Unit = {},
+    network: NetworkSignal = NetworkSignal.None,
 ) : Refresher {
     private val lastDone = HashMap<String, Long>()
+    private val lastManual = HashMap<String, Long>()
     private val lock = Any()
     @Volatile private var latest: List<String> = emptyList()
 
+    private var wasActive = false
+    private var pausedWall: Long? = null
+    private var pausedMono: Long? = null
+
     init {
         scope.launch {
-            combine(isActive, symbols.distinctUntilChanged()) { a, s -> latest = s; a to s }
+            symbols.collect { latest = it }
+        }
+        scope.launch {
+            combine(isActive, symbols.map { it.toSet() }.distinctUntilChanged()) { a, s ->
+                noteTransition(a)
+                a to s
+            }
                 .distinctUntilChanged()
-                .collectLatest { (active, syms) ->
-                    if (!active || syms.isEmpty()) return@collectLatest
+                .collectLatest { (active, set) ->
+                    if (!active || set.isEmpty()) return@collectLatest
+                    val syms = ordered(set)
                     safely { onResume() }
+                    safely { quotes.recomputeAges() }
                     pass(syms, immediate = true)
                     while (true) {
-                        pause(config.liveIntervalMs)
-                        pass(syms, immediate = false)
+                        pause(config.tickMs)
+                        pass(ordered(set), immediate = false)
                     }
                 }
         }
@@ -93,18 +119,62 @@ class RefreshController(
                 }
             }
         }
+        scope.launch {
+            isActive.collectLatest { active ->
+                if (active) network.available.collect { networkPass() }
+            }
+        }
     }
 
-    override fun refreshAll() = launchManual(latest)
+    /** Records when the app went inactive and, on resume, applies the "was away" rules. Runs inside the flow. */
+    private fun noteTransition(active: Boolean) {
+        if (active == wasActive) return
+        wasActive = active
+        if (!active) {
+            pausedWall = clock.nowMs()
+            pausedMono = clock.monoMs()
+            return
+        }
+        val pw = pausedWall ?: return
+        val pm = pausedMono ?: return
+        val wall = clock.nowMs() - pw
+        val mono = clock.monoMs() - pm
+        val suspend = wall - mono
+        if (suspend > config.suspendToleranceMs) safely { quotes.ageShift(suspend) }
+        if (maxOf(wall, mono) > config.minGapMs) synchronized(lock) { lastDone.clear() }
+    }
 
-    override fun refresh(symbol: String) = launchManual(listOf(symbol))
+    private fun ordered(set: Set<String>): List<String> = latest.filter { it in set }.ifEmpty { set.toList() }
 
-    private fun launchManual(list: List<String>) {
+    override fun refreshAll() = launchManual("*", latest)
+
+    override fun refresh(symbol: String) = launchManual(symbol, listOf(symbol))
+
+    private fun launchManual(key: String, list: List<String>) {
         if (list.isEmpty()) return
+        val now = clock.monoMs()
+        synchronized(lock) {
+            val last = lastManual[key]
+            if (last != null && now - last < config.manualDebounceMs) return
+            lastManual[key] = now
+        }
         scope.launch {
             safely { quotes.refresh(list, ChartRange.D1, force = true) }
             mark(list)
         }
+    }
+
+    /** Network came back: retry what is broken, now, whatever the minimum gap says. */
+    private suspend fun networkPass() {
+        if (quotes.cooldownRemainingMs() > 0) return
+        val states = quotes.states.value
+        val broken = latest.filter { s ->
+            val st = states[com.marketsboard.data.repo.QuoteRepository.keyFor(s, ChartRange.D1)]
+            st == null || st.quote == null || st.lastError != null
+        }
+        if (broken.isEmpty()) return
+        safely { quotes.refresh(broken, ChartRange.D1, force = false) }
+        mark(broken)
     }
 
     private suspend fun pass(syms: List<String>, immediate: Boolean) {
@@ -117,7 +187,9 @@ class RefreshController(
             val last = synchronized(lock) { lastDone[s] } ?: return@filter true
             val gap = now - last
             val need = if (immediate) config.minGapMs else {
-                val interval = if (MarketPhase.wantsLiveRate(states[s], wall)) config.liveIntervalMs else config.closedIntervalMs
+                val st = states[com.marketsboard.data.repo.QuoteRepository.keyFor(s, ChartRange.D1)]
+                val q = st?.quote
+                val interval = if (q == null || st.lastError != null) PollPolicy.LIVE_MS else PollPolicy.nextIntervalMs(q, wall, gap)
                 maxOf(interval, config.minGapMs)
             }
             gap >= need

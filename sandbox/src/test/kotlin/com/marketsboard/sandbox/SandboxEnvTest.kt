@@ -43,7 +43,8 @@ class SandboxEnvTest {
         val off = until { e.presenter.state.value.takeIf { it.header.kind == LiveKind.Offline } }
         assertTrue(off.quotes.all { it.status is RowStatus.Error && it.price != null }) // numbers kept, dimmed
         e.fake.behavior = FakeBehavior.Normal
-        e.presenter.onRefresh()
+        // manual Refresh is debounced to one press per 5 s, so recover through the per-row Retry actions
+        e.presenter.onRetry("XEQT.TO"); e.presenter.onRetry("MSFT")
         until { e.presenter.state.value.takeIf { it.header.kind == LiveKind.Live } }
     }
 
@@ -62,7 +63,7 @@ class SandboxEnvTest {
     @Test fun clockSkewShowsTheBanner() = env { e, _ ->
         until { e.presenter.state.value.takeIf { st -> st.quotes.size == 2 && st.quotes.all { it.status == RowStatus.Fresh } } }
         e.time.deviceSkewMs = -45 * 60_000L
-        e.presenter.onRefresh()
+        e.presenter.onRetry("XEQT.TO")
         until { e.presenter.state.value.takeIf { it.clockSkew } }
     }
 }

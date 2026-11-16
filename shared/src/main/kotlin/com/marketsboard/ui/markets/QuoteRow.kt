@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,10 +63,11 @@ fun priceFontSizeSp(priceText: String): Int = when {
 fun secondaryLine(symbol: String, exchange: String): String = if (exchange.isBlank()) symbol else "$symbol  ·  $exchange"
 
 /**
- * One watchlist row (min 84 dp): name and "SYMBOL  ·  EXCHANGE" on the left, a 1D sparkline, price in the instrument's
- * own currency and the day change on the right. Stale and failed rows add a status line (amber dot, age or reason,
- * "Retry"); loading rows show skeleton blocks where numbers will go. A price never wraps; the name ellipsizes.
- * [onPriceLayout] and [onNameLayout] report text layouts (layout tests only).
+ * One watchlist row. Line 1: the full name (up to two lines, never cut to one) with the price right-aligned. Line 2:
+ * `SYMBOL  ·  EXCHANGE` with the day change right-aligned. Then a full-width 1D sparkline strip with the dashed
+ * previous-close baseline. Stale and failed rows add a status band (amber dot, age or reason, "Retry"); loading rows
+ * show skeleton blocks where numbers will go. A price never wraps. [suppressStale] hides the stale band while the
+ * clock-skew banner already explains it. [onPriceLayout] and [onNameLayout] report text layouts (layout tests only).
  */
 @Composable
 fun QuoteRow(
@@ -71,52 +77,70 @@ fun QuoteRow(
     onRetry: () -> Unit = {},
     onPriceLayout: (value: TextLayoutResult, unit: TextLayoutResult) -> Unit = { _, _ -> },
     onNameLayout: (TextLayoutResult) -> Unit = {},
+    suppressStale: Boolean = false,
 ) {
     val dim = q.dimmed
     val color = if (dim) Dash.dim else changeColor(q.changePct)
     val priceText = q.price?.let { formatPrice(it, q.decimals) }
     var valueLayout: TextLayoutResult? = null
-    Column(modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    q.name, color = Dash.text, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, onTextLayout = onNameLayout,
+    Column(modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Text(
+                q.name, color = Dash.text, fontSize = 18.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium, maxLines = 2,
+                overflow = TextOverflow.Ellipsis, onTextLayout = onNameLayout,
+                modifier = Modifier.weight(1f).padding(end = 12.dp, top = 3.dp),
+            )
+            when {
+                priceText != null -> Numeral(
+                    priceText, q.currency, size = priceFontSizeSp(priceText).sp, color = if (dim) Dash.dim else Dash.text,
+                    onValueLayout = { valueLayout = it }, onUnitLayout = { u -> valueLayout?.let { onPriceLayout(it, u) } },
                 )
-                Text(
-                    secondaryLine(q.symbol, q.exchange), color = Dash.dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-            if (priceText != null) {
-                if (q.series.size >= 2) {
-                    Sparkline(
-                        q.series, Modifier.padding(horizontal = 6.dp).width(56.dp).height(34.dp),
-                        color = color, baseline = q.prevClose?.toFloat(),
-                    )
-                } else {
-                    Spacer(Modifier.width(68.dp))
-                }
-                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 6.dp).widthIn(min = 132.dp)) {
-                    Numeral(
-                        priceText, q.currency, size = priceFontSizeSp(priceText).sp,
-                        color = if (dim) Dash.dim else Dash.text,
-                        onValueLayout = { valueLayout = it },
-                        onUnitLayout = { u -> valueLayout?.let { onPriceLayout(it, u) } },
-                    )
-                    ChangeLine(q.change, q.changePct, q.prevClose != null, q.decimals, color, Modifier.padding(top = 4.dp))
-                }
-            } else if (q.status is RowStatus.Loading) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Skeleton(92.dp, 24.dp)
-                    Skeleton(64.dp, 14.dp, Modifier.padding(top = 8.dp))
-                }
-            } else {
+                q.status is RowStatus.Loading -> Skeleton(96.dp, 26.dp, Modifier.padding(top = 2.dp))
                 // Error with nothing held: no numbers at all, just a dim dash.
-                Text(NO_VALUE, color = Dash.faint, fontSize = 24.sp, fontWeight = FontWeight.Light, style = Tabular)
+                else -> Text(NO_VALUE, color = Dash.faint, fontSize = 24.sp, fontWeight = FontWeight.Light, style = Tabular)
             }
         }
-        StatusBand(q.status, onRetry)
+        Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                secondaryLine(q.symbol, q.exchange), color = Dash.dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
+            when {
+                priceText != null -> ChangeLine(q.change, q.changePct, q.prevClose != null, q.decimals, color)
+                q.status is RowStatus.Loading -> Skeleton(64.dp, 14.dp)
+            }
+        }
+        if (priceText != null && q.series.size >= 2) {
+            Sparkline(
+                q.series, Modifier.padding(top = 8.dp).fillMaxWidth().height(26.dp),
+                color = color, baseline = q.prevClose?.toFloat(),
+            )
+        }
+        if (!(suppressStale && q.status is RowStatus.Stale)) StatusBand(q.status, onRetry)
+    }
+}
+
+/** Minimal row for Glance mode: name, price and change only. Not clickable. */
+@Composable
+fun GlanceRow(q: QuoteRowUi, modifier: Modifier = Modifier) {
+    val dim = q.dimmed || q.status is RowStatus.Stale
+    val color = if (dim) Dash.dim else changeColor(q.changePct)
+    val priceText = q.price?.let { formatPrice(it, q.decimals) }
+    Row(modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            q.name, color = Dash.text, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Medium, maxLines = 2,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
+        Column(horizontalAlignment = Alignment.End) {
+            if (priceText != null) {
+                Numeral(priceText, q.currency, size = priceFontSizeSp(priceText).plus(6).sp, color = if (dim) Dash.dim else Dash.text)
+                ChangeLine(q.change, q.changePct, q.prevClose != null, q.decimals, color, Modifier.padding(top = 4.dp), size = 17)
+            } else if (q.status is RowStatus.Loading) {
+                Skeleton(110.dp, 30.dp)
+            } else {
+                Text(NO_VALUE, color = Dash.faint, fontSize = 28.sp, fontWeight = FontWeight.Light, style = Tabular)
+            }
+        }
     }
 }
 
@@ -133,27 +157,34 @@ fun ChangeLine(change: Double, pct: Double, hasPrev: Boolean, decimals: Int, col
     }
 }
 
-/** Amber status line under a row: age for stale data, the reason plus "Retry" for a failed refresh. */
+/**
+ * Amber status block under a row. Stale: one line with the age. Failed refresh: the reason (wraps to two lines), the
+ * age of the numbers on its own dim line, and "Retry" in its own column so text never runs into it.
+ */
 @Composable
 fun StatusBand(status: RowStatus, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    val text = when (status) {
-        is RowStatus.Stale -> if (status.ageText.isEmpty()) "Not up to date" else "Updated ${status.ageText}"
-        is RowStatus.Error -> if (status.ageText.isEmpty()) status.reason else "${status.reason}  ·  updated ${status.ageText}"
+    val text: String
+    var sub = ""
+    when (status) {
+        is RowStatus.Stale -> text = if (status.ageText.isEmpty()) "Not up to date" else "Updated ${status.ageText}"
+        is RowStatus.Error -> { text = status.reason; if (status.ageText.isNotEmpty()) sub = "Last price ${status.ageText}" }
         else -> return
     }
-    Row(modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Dot(Dash.amber, 6)
-        Text(
-            text, color = Dash.amber, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 17.sp,
-            modifier = Modifier.weight(1f).padding(start = 8.dp),
-        )
-        if (status is RowStatus.Error) TextAction("Retry", onRetry, Modifier.heightIn(min = 40.dp).offset(x = 10.dp), color = Dash.text)
+    Row(modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.Top) {
+        Dot(Dash.amber, 6, Modifier.padding(top = 6.dp))
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(text, color = Dash.amber, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 18.sp)
+            if (sub.isNotEmpty()) Text(sub, color = Dash.dim, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 1.dp))
+        }
+        if (status is RowStatus.Error) {
+            TextAction("Retry", onRetry, Modifier.padding(start = 16.dp).offset(x = 10.dp, y = (-6).dp), color = Dash.text)
+        }
     }
 }
 
 /**
- * Edit-mode row: name, move up and down buttons (48 dp targets), then Rename, Replace and Remove actions.
- * [index] and [count] disable the arrow that cannot move.
+ * Edit-mode row: name, move up and down buttons (48 dp targets with spoken labels), then Rename, Replace and Remove
+ * as three separate 48 dp buttons. [index] and [count] disable the arrow that cannot move.
  */
 @Composable
 fun EditRow(
@@ -166,34 +197,45 @@ fun EditRow(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp)) {
+    Column(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(q.name, color = Dash.text, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f).padding(end = 10.dp)) {
+                Text(q.name, color = Dash.text, fontSize = 18.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     secondaryLine(q.symbol, q.exchange), color = Dash.dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 3.dp),
                 )
             }
-            ArrowButton(up = true, enabled = index > 0, onClick = { onMove(-1) })
+            ArrowButton(up = true, enabled = index > 0, onClick = { onMove(-1) }, description = "Move ${q.symbol} up")
             Spacer(Modifier.width(10.dp))
-            ArrowButton(up = false, enabled = index < count - 1, onClick = { onMove(1) })
+            ArrowButton(up = false, enabled = index < count - 1, onClick = { onMove(1) }, description = "Move ${q.symbol} down")
         }
-        Row(Modifier.fillMaxWidth().padding(top = 2.dp).offset(x = (-10).dp), verticalAlignment = Alignment.CenterVertically) {
-            TextAction("Rename", onRename, Modifier.heightIn(min = 44.dp), color = Dash.text)
-            TextAction("Replace", onReplace, Modifier.heightIn(min = 44.dp), color = Dash.text)
-            Spacer(Modifier.weight(1f))
-            TextAction("Remove", onRemove, Modifier.heightIn(min = 44.dp).offset(x = 20.dp), color = Dash.dim)
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            EditAction("Rename", onRename, Modifier.weight(1f))
+            EditAction("Replace", onReplace, Modifier.weight(1f))
+            EditAction("Remove", onRemove, Modifier.weight(1f))
         }
+    }
+}
+
+/** Outlined 48 dp button used for the per-row editor actions. */
+@Composable
+fun EditAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier.height(48.dp).clip(RoundedCornerShape(14.dp)).background(Dash.surfaceHigh).border(1.dp, Dash.line, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = Dash.text, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 
 /** 48 dp square button with a drawn chevron (no font glyph needed). */
 @Composable
-fun ArrowButton(up: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun ArrowButton(up: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, description: String = if (up) "Move up" else "Move down") {
     val tint = if (enabled) Dash.text else Dash.faint
     Box(
-        modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(Dash.surfaceHigh)
+        modifier.size(48.dp).semantics { contentDescription = description; role = Role.Button }.clip(RoundedCornerShape(14.dp)).background(Dash.surfaceHigh)
             .border(1.dp, Dash.line, RoundedCornerShape(14.dp))
             .let { if (enabled) it.clickable(onClick = onClick) else it },
         contentAlignment = Alignment.Center,

@@ -1,6 +1,7 @@
 package com.marketsboard.ui.markets
 
 import com.marketsboard.data.model.ChartRange
+import com.marketsboard.ui.UiMode
 
 /** What a row says about its data. Colour: amber for everything except [Fresh] and [Loading]. */
 sealed interface RowStatus {
@@ -68,6 +69,13 @@ data class DetailUi(
     val chartError: String = "",
     val status: RowStatus,
     val stats: List<DetailStat>,
+    /** Axis labels under the chart: where it starts and "as of ..." where it ends (the chart's last point). */
+    val chartStart: String = "",
+    val chartEnd: String = "",
+    val rangeHigh: Double? = null,
+    val rangeLow: Double? = null,
+    /** Amber note when a held range could not be refreshed ("Chart not refreshed: ..."); blank when fine. */
+    val chartNote: String = "",
 ) {
     val change: Double get() = if (price != null && refClose != null) price - refClose else Double.NaN
     val changePct: Double get() = if (price != null && refClose != null && refClose != 0.0) (price - refClose) / refClose * 100.0 else Double.NaN
@@ -117,6 +125,7 @@ data class MarketsUiState(
     val add: AddUi? = null,
     val confirmRemove: ConfirmRemoveUi? = null,
     val rename: RenameUi? = null,
+    val mode: UiMode = UiMode.Normal,
 ) {
     /** True when "back" has something to close (dialog, sheet, detail, edit mode). */
     val canGoBack: Boolean get() = rename != null || confirmRemove != null || add != null || detail != null || editMode

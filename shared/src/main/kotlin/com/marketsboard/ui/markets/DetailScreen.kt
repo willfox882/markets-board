@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,7 +75,13 @@ fun DetailScreen(d: DetailUi, actions: MarketsActions, modifier: Modifier = Modi
             }
         }
         item {
-            Box(Modifier.fillMaxWidth().padding(top = 16.dp).height(190.dp)) {
+            if (d.chart == ChartLoad.Ready && d.rangeHigh != null && d.rangeLow != null) {
+                Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Text("High ${formatPrice(d.rangeHigh, d.decimals)}", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    Text("Low ${formatPrice(d.rangeLow, d.decimals)}", color = Dash.dim, fontSize = 13.sp)
+                }
+            }
+            Box(Modifier.fillMaxWidth().padding(top = if (d.chart == ChartLoad.Ready) 8.dp else 16.dp).height(if (d.chart == ChartLoad.Ready) 170.dp else 110.dp)) {
                 when (d.chart) {
                     ChartLoad.Ready -> LineChart(
                         d.series, color = color, fill = false, baseline = d.baseline,
@@ -95,6 +102,23 @@ fun DetailScreen(d: DetailUi, actions: MarketsActions, modifier: Modifier = Modi
                             TextAction("Try again", actions::onRetryRange, color = Dash.text)
                         }
                     }
+                }
+            }
+        }
+        if (d.chart == ChartLoad.Ready && d.chartStart.isNotEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Text(d.chartStart, color = Dash.dim, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text(d.chartEnd, color = Dash.dim, fontSize = 12.sp)
+                }
+            }
+        }
+        if (d.chartNote.isNotEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.Top) {
+                    Dot(Dash.amber, 6, Modifier.padding(top = 6.dp))
+                    Text(d.chartNote, color = Dash.amber, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f).padding(start = 8.dp))
+                    TextAction("Try again", actions::onRetryRange, Modifier.offset(x = 10.dp), color = Dash.text)
                 }
             }
         }

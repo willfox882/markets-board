@@ -12,6 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import com.marketsboard.ui.UiMode
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
@@ -45,10 +50,14 @@ import com.marketsboard.ui.liveDotColor
 @Composable
 fun MarketsScreen(state: MarketsUiState, modifier: Modifier = Modifier, actions: MarketsActions = MarketsActions.None) {
     LocalBackHook.current(state.canGoBack) { actions.onBack() }
+    // Hoisted so the list keeps its scroll position while an overlay is open.
+    val listState = rememberLazyListState()
+    val overlay = state.detail != null || state.add != null
     Box(modifier.fillMaxSize()) {
-        WatchlistPage(state, actions)
-        state.detail?.let { DetailScreen(it, actions, Modifier.fillMaxSize().background(Dash.bg)) }
-        state.add?.let { AddSheet(it, actions, Modifier.fillMaxSize().background(Dash.bg)) }
+        // The list is NOT composed under an overlay: nothing behind it can receive a touch or a screen-reader focus.
+        if (!overlay) WatchlistPage(state, actions, listState)
+        state.detail?.let { DetailScreen(it, actions, Modifier.fillMaxSize().background(Dash.bg).consumeTouches()) }
+        state.add?.let { AddSheet(it, actions, Modifier.fillMaxSize().background(Dash.bg).consumeTouches()) }
     }
     state.confirmRemove?.let { c ->
         DashDialog(
@@ -71,16 +80,23 @@ fun MarketsScreen(state: MarketsUiState, modifier: Modifier = Modifier, actions:
     }
 }
 
+/** Swallows pointer events the overlay content did not use (Main pass runs children first), so nothing underneath can be tapped through it. */
+private fun Modifier.consumeTouches(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) awaitPointerEvent(PointerEventPass.Main).changes.forEach { it.consume() }
+    }
+}
+
 @Composable
-private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions) {
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listState: LazyListState) {
+    val glance = state.mode == UiMode.Glance
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), state = listState, verticalArrangement = Arrangement.spacedBy(0.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 ScreenTitle("Markets", Modifier.weight(1f))
-                if (state.refreshing) {
-                    Text("Refreshing", color = Dash.dim, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
-                } else if (state.quotes.isNotEmpty()) {
-                    TextAction("Refresh", actions::onRefresh, Modifier.offset(x = 10.dp), color = Dash.text)
+                // The slot keeps its size while refreshing: only the colour changes, so nothing in the header moves.
+                if (!glance && state.quotes.isNotEmpty()) {
+                    TextAction("Refresh", if (state.refreshing) ({}) else actions::onRefresh, Modifier.offset(x = 10.dp), color = if (state.refreshing) Dash.faint else Dash.text)
                 }
             }
             HeaderStatus(state.header)
@@ -91,18 +107,20 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions) {
         }
         item {
             SectionHeader("Watchlist", Modifier.padding(top = 14.dp)) {
-                if (state.quotes.isNotEmpty()) {
+                if (!glance && state.quotes.isNotEmpty()) {
                     TextAction(if (state.editMode) "Done" else "Edit", actions::onToggleEdit, Modifier.offset(x = 10.dp), color = Dash.text)
                 }
             }
             Hairline(Modifier.padding(top = 4.dp))
         }
         if (state.quotes.isEmpty()) {
-            item { EmptyState(actions::onAddOpen) }
+            item { if (glance) Text("No symbols yet", color = Dash.dim, fontSize = 18.sp, modifier = Modifier.padding(vertical = 40.dp)) else EmptyState(actions::onAddOpen) }
         } else {
             itemsIndexed(state.quotes) { i, q ->
                 Column {
-                    if (state.editMode) {
+                    if (glance) {
+                        GlanceRow(q)
+                    } else if (state.editMode) {
                         EditRow(
                             q, i, state.quotes.size,
                             onMove = { actions.onMove(q.symbol, it) },
@@ -111,12 +129,12 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions) {
                             onRemove = { actions.onAskRemove(q.symbol) },
                         )
                     } else {
-                        QuoteRow(q, onClick = { actions.onOpen(q.symbol) }, onRetry = { actions.onRetry(q.symbol) })
+                        QuoteRow(q, onClick = { actions.onOpen(q.symbol) }, onRetry = { actions.onRetry(q.symbol) }, suppressStale = state.clockSkew)
                     }
                     Hairline()
                 }
             }
-            if (state.editMode) {
+            if (state.editMode && !glance) {
                 item {
                     PillButton("Add symbol", actions::onAddOpen, Modifier.fillMaxWidth().padding(top = 20.dp), kind = PillKind.Primary)
                 }

@@ -5,7 +5,9 @@ import com.marketsboard.data.MarketsData
 import com.marketsboard.data.repo.QuoteRepository
 import com.marketsboard.data.store.FileJsonCache
 import com.marketsboard.data.store.WatchlistStore
+import com.marketsboard.refresh.ActiveGate
 import com.marketsboard.refresh.RefreshConfig
+import com.marketsboard.ui.UiMode
 import com.marketsboard.refresh.RefreshController
 import com.marketsboard.ui.markets.MarketsPresenter
 import java.io.File
@@ -72,13 +74,14 @@ class SandboxEnv(
     val data = MarketsData(watchlist, quotes, fake)
 
     /** The Activity-resumed switch the platform would flip. */
-    val active = MutableStateFlow(true)
+    val gate = ActiveGate(initial = true)
+    val uiMode = MutableStateFlow(UiMode.Normal)
 
     val controller = RefreshController(
-        scope, quotes, watchlist.items.map { l -> l.map { it.symbol } }, active, time.deviceClock,
+        scope, quotes, watchlist.items.map { l -> l.map { it.symbol } }, gate.isActive, time.deviceClock,
         RefreshConfig(timeScale = { time.speed }), onResume = { watchlist.flushIfDirty() },
     )
-    val presenter = MarketsPresenter(scope, data, controller, time.deviceClock, io)
+    val presenter = MarketsPresenter(scope, data, controller, time.deviceClock, io, mode = uiMode)
 
     private val _dropSecondsLeft = MutableStateFlow(0)
     /** Seconds left of a simulated hotspot drop (0 when none). */

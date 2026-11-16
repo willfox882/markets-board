@@ -106,6 +106,17 @@ object ScreenshotFixtures {
 
     fun empty() = MarketsUiState(emptyList())
 
+    /** Glance mode: the six-symbol list reduced to name, price and change. */
+    fun glance(): MarketsUiState = six().copy(mode = com.marketsboard.ui.UiMode.Glance)
+
+    /** A 3M chart that is held but failed to refresh. */
+    fun detailChartStale(): MarketsUiState {
+        val items = WatchlistStore.DEFAULTS
+        val states = freshStates(items.map { it.symbol }).toMutableMap()
+        states[key("MSFT", ChartRange.M3)] = failed(quote("MSFT", ChartRange.M3), ErrorKind.Network, 40 * 60_000L)
+        return marketsState(items, states).copy(detail = UiMapper.detail(item("MSFT"), ChartRange.M3, states, 0, NOW))
+    }
+
     fun confirmRemove(): MarketsUiState = editor().copy(confirmRemove = ConfirmRemoveUi("MSFT", "Microsoft Corporation"))
 
     fun detail(symbol: String, range: ChartRange): MarketsUiState {

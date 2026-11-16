@@ -182,6 +182,8 @@ internal object YahooParser {
             val symbol = o.str("symbol") ?: continue
             val type = o.str("quoteType")?.uppercase() ?: continue
             if (type !in SEARCH_TYPES) continue
+            // Yahoo can list one symbol twice (several exchanges); keep the first so UI keys stay unique.
+            if (out.any { it.symbol.equals(symbol, ignoreCase = true) }) continue
             out.add(
                 Instrument(
                     symbol = symbol.uppercase(),

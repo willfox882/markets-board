@@ -36,19 +36,22 @@ fun MarketsBoardRoot(
     news: NewsUiState,
     initialTab: MbTab = MbTab.Markets,
     actions: MarketsActions = MarketsActions.None,
+    mode: UiMode = markets.mode,
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     DesignScale {
         Column(Modifier.fillMaxSize().background(Dash.bg)) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
-                    MbTab.Markets -> MarketsScreen(markets, actions = actions)
+                    MbTab.Markets -> MarketsScreen(if (markets.mode == mode) markets else markets.copy(mode = mode), actions = actions)
                     MbTab.News -> NewsScreen(news)
                     MbTab.Settings -> SettingsScreen()
                 }
             }
-            Hairline()
-            Row(Modifier.fillMaxWidth().height(60.dp)) {
+            // Detail and the add sheet are full-screen: the tab bar steps aside so their content is not cut off.
+            val fullScreen = tab == MbTab.Markets && (markets.detail != null || markets.add != null)
+            if (!fullScreen) Hairline()
+            if (!fullScreen) Row(Modifier.fillMaxWidth().height(60.dp)) {
                 MbTab.entries.forEach { t ->
                     val selected = t == tab
                     Box(

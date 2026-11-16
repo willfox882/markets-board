@@ -17,8 +17,7 @@ import com.marketsboard.data.repo.QuoteState
 import com.marketsboard.data.store.AddOutcome
 import com.marketsboard.data.store.Symbols
 import com.marketsboard.refresh.Refresher
-import com.marketsboard.ui.NO_VALUE
-import com.marketsboard.ui.formatPrice
+import com.marketsboard.ui.UiMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +48,7 @@ class MarketsPresenter(
     private val clock: Clock = Clock.System,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val searchDebounceMs: Long = 400,
+    private val mode: StateFlow<UiMode> = MutableStateFlow(UiMode.Normal),
 ) : MarketsActions {
 
     private data class DetailSel(val symbol: String, val range: ChartRange)
@@ -58,6 +58,8 @@ class MarketsPresenter(
         val query: String = "",
         val searching: Boolean = false,
         val results: List<Instrument> = emptyList(),
+        /** The trimmed query the [results] answer; results of an older query are never used by Done. */
+        val resultsFor: String = "",
         val searchNote: String = "",
         val busy: Boolean = false,
         val message: AddMessage? = null,
@@ -79,7 +81,11 @@ class MarketsPresenter(
         data.watchlist.items, data.quotes.states, data.watchlist.persistError, nav,
     ) { items, states, persistError, n -> build(items, states, persistError, n) }
 
-    val state: StateFlow<MarketsUiState> = combine(core, data.quotes.refreshing) { s, r -> s.copy(refreshing = r) }
+    val state: StateFlow<MarketsUiState> = combine(core, data.quotes.refreshing, mode) { s, r, m ->
+        val withMode = s.copy(refreshing = r, mode = m)
+        // Glance shows no editor, detail or sheets whatever was open before.
+        if (m == UiMode.Glance) withMode.copy(detail = null, add = null, editMode = false, confirmRemove = null, rename = null) else withMode
+    }
         .stateIn(scope, SharingStarted.Eagerly, MarketsUiState(emptyList()))
 
     init {
@@ -148,7 +154,9 @@ class MarketsPresenter(
 
     override fun onRetry(symbol: String) = refresher.refresh(symbol)
 
-    override fun onToggleEdit() = nav.update { it.copy(editMode = !it.editMode) }
+    private val glance: Boolean get() = mode.value == UiMode.Glance
+
+    override fun onToggleEdit() { if (!glance) nav.update { it.copy(editMode = !it.editMode) } }
 
     override fun onMove(symbol: String, delta: Int) {
         val list = data.watchlist.items.value
@@ -193,6 +201,7 @@ class MarketsPresenter(
     // ---- detail -------------------------------------------------------------------------------------------------
 
     override fun onOpen(symbol: String) {
+        if (glance) return
         if (data.watchlist.items.value.none { it.symbol == symbol }) return
         nav.update { it.copy(detail = DetailSel(symbol, ChartRange.D1)) }
         loadRange(symbol, ChartRange.D1, force = false)
@@ -229,9 +238,10 @@ class MarketsPresenter(
 
     // ---- add / replace ------------------------------------------------------------------------------------------
 
-    override fun onAddOpen() = nav.update { it.copy(add = AddState()) }
+    override fun onAddOpen() { if (!glance) nav.update { it.copy(add = AddState()) } }
 
     override fun onReplaceOpen(symbol: String) {
+        if (glance) return
         if (data.watchlist.items.value.none { it.symbol == symbol }) return
         nav.update { it.copy(add = AddState(replacing = symbol)) }
     }
@@ -261,10 +271,14 @@ class MarketsPresenter(
             // Ignore the answer if the text moved on (cancellation normally covers this; belt and braces).
             if (nav.value.add?.query?.trim() != term) return@launch
             when (r) {
-                is FetchResult.Ok -> updateAdd {
-                    it.copy(searching = false, results = r.value, searchNote = if (r.value.isEmpty()) "No matches. Press Done to try it as a symbol." else "")
+                is FetchResult.Ok -> {
+                    // One row per symbol: LazyColumn keys and "Added" badges depend on it.
+                    val unique = r.value.distinctBy { it.symbol }
+                    updateAdd {
+                        it.copy(searching = false, results = unique, resultsFor = term, searchNote = if (unique.isEmpty()) "No matches. Type the full symbol in capitals, like XEQT.TO, and press Done." else "")
+                    }
                 }
-                is FetchResult.Err -> updateAdd { it.copy(searching = false, results = emptyList(), searchNote = searchFailure(r.kind)) }
+                is FetchResult.Err -> updateAdd { it.copy(searching = false, results = emptyList(), resultsFor = term, searchNote = searchFailure(r.kind)) }
             }
         }
     }
@@ -284,6 +298,11 @@ class MarketsPresenter(
         scope.launch { submit(symbol, anyway = false, closeOnAdded = a.replacing != null) }
     }
 
+    /**
+     * Done / IME action. A symbol-shaped entry (capitals, digits and . ^ = - only) is tried as a ticker, preferring a
+     * search result with exactly that symbol. Anything else (spaces, lowercase: it is a name, not a ticker) picks the
+     * first result of the current search, or explains what to do. A guessed ticker is never added silently.
+     */
     override fun onSubmitTyped() {
         val a = nav.value.add ?: return
         if (a.busy) return
@@ -292,7 +311,20 @@ class MarketsPresenter(
             onAddClose()
             return
         }
-        scope.launch { submit(typed, anyway = false, closeOnAdded = true) }
+        val fresh = a.resultsFor == typed && a.results.isNotEmpty()
+        val target: String? = when {
+            SYMBOL_SHAPE.matches(typed) -> (if (fresh) a.results.firstOrNull { it.symbol == typed }?.symbol else null) ?: typed
+            fresh -> a.results.first().symbol
+            else -> null
+        }
+        if (target == null) {
+            val pending = a.searching || a.resultsFor != typed
+            val text = (if (pending) "Still searching. " else "") +
+                "Pick a result from the list, or type the full symbol in capital letters, like XEQT.TO."
+            updateAdd { it.copy(message = AddMessage(text, warn = false)) }
+            return
+        }
+        scope.launch { submit(target, anyway = false, closeOnAdded = true) }
     }
 
     override fun onAddAnyway() {
@@ -305,6 +337,7 @@ class MarketsPresenter(
     private suspend fun submit(raw: String, anyway: Boolean, closeOnAdded: Boolean) {
         val a = nav.value.add ?: return
         val replacing = a.replacing
+        val startedQuery = a.query
         updateAdd { it.copy(busy = true, message = null) }
         val outcome: AddOutcome = withContext(io) {
             try {
@@ -328,13 +361,18 @@ class MarketsPresenter(
             return
         }
         updateAdd {
+            // Never overwrite what the user typed while the add was in flight.
+            val untouched = outcome is AddOutcome.Added && it.query == startedQuery
             it.copy(
                 busy = false,
-                query = if (outcome is AddOutcome.Added) "" else it.query,
-                results = if (outcome is AddOutcome.Added) emptyList() else it.results,
-                searching = false,
+                query = if (untouched) "" else it.query,
+                results = if (untouched) emptyList() else it.results,
                 message = AddMessage(t.text, t.warn, addAnywaySymbol = if (t.canAddAnyway && sym != null) sym else null),
             )
         }
+    }
+
+    private companion object {
+        val SYMBOL_SHAPE = Regex("^[A-Z0-9.^=-]{1,15}$")
     }
 }

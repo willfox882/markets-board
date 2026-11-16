@@ -1,6 +1,8 @@
 package com.marketsboard.refresh
 
 import com.marketsboard.FakeQuotesSource
+import com.marketsboard.FakeNetwork
+import com.marketsboard.SplitClock
 import com.marketsboard.VirtualClock
 import com.marketsboard.data.model.ErrorKind
 import com.marketsboard.data.model.FetchResult
@@ -23,13 +25,14 @@ import org.junit.Test
 /** The refresh policy of the Markets tab, driven by virtual time and a clock that follows it. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RefreshControllerTest {
-    private class Rig(scope: TestScope, symbols: List<String> = listOf("A", "B")) {
-        val clock = VirtualClock(scope.testScheduler)
+    private class Rig(scope: TestScope, symbols: List<String> = listOf("A", "B"), splitClock: Boolean = false) {
+        val clock: com.marketsboard.data.Clock = if (splitClock) SplitClock(scope.testScheduler) else VirtualClock(scope.testScheduler)
+        val network = FakeNetwork()
         val quotes = FakeQuotesSource(clock)
         val symbols = MutableStateFlow(symbols)
         val active = MutableStateFlow(true)
         var resumes = 0
-        val controller = RefreshController(scope.backgroundScope, quotes, this.symbols, active, clock, onResume = { resumes++ })
+        val controller = RefreshController(scope.backgroundScope, quotes, this.symbols, active, clock, onResume = { resumes++ }, network = network)
 
         fun open(sym: String, state: String = "REGULAR"): QuoteState = freshState(q(sym, state), clock.monoMs())
         fun q(sym: String, state: String?): Quote = quoteOf(sym).copy(marketState = state)
@@ -64,35 +67,49 @@ class RefreshControllerTest {
         assertEquals(3, r.quotes.calls.size)
     }
 
-    @Test fun preAndPostMarketCountAsLive() = runTest {
+    @Test fun preAndPostMarketArePolledEveryFiveMinutes() = runTest {
         for (state in listOf("PRE", "POST")) {
             val r = Rig(this, listOf("A"))
             r.quotes.onRefresh = { s, _ -> r.open(s, state) }
             runCurrent()
-            tick(60_000)
+            tick(299_000)
+            assertEquals(state, 1, r.quotes.calls.size)
+            tick(1_000)
             assertEquals(state, 2, r.quotes.calls.size)
         }
     }
 
-    @Test fun allClosedMarketsAreRefreshedEveryFiveMinutes() = runTest {
+    @Test fun allClosedMarketsAreRefreshedEveryThirtyMinutes() = runTest {
         val r = Rig(this)
         r.quotes.onRefresh = { s, _ -> r.open(s, "CLOSED") }
         runCurrent()
         assertEquals(1, r.quotes.calls.size)
-        tick(299_000)
+        tick(29 * 60_000L)
         assertEquals(1, r.quotes.calls.size)
-        tick(1_000)
+        tick(60_000)
         assertEquals(2, r.quotes.calls.size)
-        assertEquals(300_000L, r.quotes.calls[1].atMs)
-        tick(300_000)
+        assertEquals(1_800_000L, r.quotes.calls[1].atMs)
+        tick(1_800_000)
         assertEquals(3, r.quotes.calls.size)
+    }
+
+    @Test fun aClosedMarketIsPolledAtTheNextSessionStartWhenThatIsSooner() = runTest {
+        val r = Rig(this, listOf("A"))
+        val startWall = r.clock.nowMs() + 10 * 60_000 // opens in 10 minutes
+        r.quotes.onRefresh = { s, _ -> freshState(r.q(s, "CLOSED").copy(sessionStartMs = startWall, sessionEndMs = startWall + 6 * 3_600_000)) }
+        runCurrent()
+        tick(9 * 60_000L)
+        assertEquals(1, r.quotes.calls.size)
+        tick(60_000)
+        assertEquals(2, r.quotes.calls.size)
+        assertEquals(600_000L, r.quotes.calls[1].atMs)
     }
 
     @Test fun prePreAndPostPostCountAsClosed() = runTest {
         val r = Rig(this, listOf("A"))
         r.quotes.onRefresh = { s, _ -> r.open(s, "POSTPOST") }
         runCurrent()
-        tick(240_000)
+        tick(29 * 60_000L)
         assertEquals(1, r.quotes.calls.size)
     }
 
@@ -102,8 +119,8 @@ class RefreshControllerTest {
         runCurrent()
         tick(60_000)
         assertEquals(listOf("A"), r.quotes.calls.last().symbols)
-        tick(240_000)
-        // at 300 s the closed one is due too
+        tick(29 * 60_000L)
+        // at 30 min the closed one is due too
         assertEquals(listOf("A", "B"), r.quotes.calls.last().symbols)
     }
 
@@ -275,17 +292,17 @@ class RefreshControllerTest {
     @Test fun agesAreRecomputedEveryFifteenSecondsWhileActive() = runTest {
         val r = Rig(this)
         runCurrent()
-        assertEquals(listOf(0L), r.quotes.agesCalls)
+        assertEquals(listOf(0L, 0L), r.quotes.agesCalls) // the age loop and the first pass both recompute
         tick(15_000)
         tick(15_000)
-        assertEquals(listOf(0L, 15_000L, 30_000L), r.quotes.agesCalls)
+        assertEquals(listOf(0L, 0L, 15_000L, 30_000L), r.quotes.agesCalls)
         r.active.value = false
         runCurrent()
         tick(60_000)
-        assertEquals(3, r.quotes.agesCalls.size)
+        assertEquals(4, r.quotes.agesCalls.size)
         r.active.value = true
         runCurrent()
-        assertEquals(4, r.quotes.agesCalls.size)
+        assertEquals(6, r.quotes.agesCalls.size)
     }
 
     // ---- manual -----------------------------------------------------------------------------------------------
@@ -320,5 +337,113 @@ class RefreshControllerTest {
         // so the 60 s gap rule still holds and no second fetch happens: speed-up must scale the clock as well.
         tick(6_000)
         assertEquals(1, q.calls.size)
+    }
+
+    // ---- audit round: reorder, network, suspend, debounce -----------------------------------------------------
+
+    @Test fun aPureReorderDoesNotRestartTheTimer() = runTest {
+        val r = Rig(this)
+        r.quotes.onRefresh = { s, _ -> r.open(s) }
+        runCurrent()
+        tick(30_000)
+        r.symbols.value = listOf("B", "A")
+        runCurrent()
+        tick(30_000)
+        // the tick stays at 60 s from the start; a restart would have pushed it to 90 s
+        assertEquals(2, r.quotes.calls.size)
+        assertEquals(60_000L, r.quotes.calls[1].atMs)
+        assertEquals(1, r.resumes)
+    }
+
+    @Test fun networkBackRetriesBrokenSymbolsAtOnceIgnoringTheMinimumGap() = runTest {
+        val r = Rig(this)
+        r.quotes.onRefresh = { s, _ -> r.open(s) }
+        runCurrent()
+        tick(10_000)
+        r.quotes.put("B", QuoteState(null, QuoteStatus.Error(ErrorKind.Network), null, FetchResult.Err(ErrorKind.Network, "x")))
+        r.network.back()
+        runCurrent()
+        assertEquals(2, r.quotes.calls.size)
+        assertEquals(listOf("B"), r.quotes.calls[1].symbols) // only the broken one, 10 s after the last attempt
+        assertEquals(10_000L, r.quotes.calls[1].atMs)
+        r.network.back() // everything healthy now: nothing to do
+        runCurrent()
+        assertEquals(2, r.quotes.calls.size)
+    }
+
+    @Test fun networkBackStillHonoursTheCooldownAndThePause() = runTest {
+        val r = Rig(this)
+        runCurrent()
+        r.quotes.put("A", QuoteState(null, QuoteStatus.Error(ErrorKind.Network), null, FetchResult.Err(ErrorKind.Network, "x")))
+        r.quotes.cooldownMs = 60_000
+        r.network.back()
+        runCurrent()
+        assertEquals(1, r.quotes.calls.size)
+        r.quotes.cooldownMs = 0
+        r.active.value = false
+        runCurrent()
+        r.network.back()
+        runCurrent()
+        assertEquals(1, r.quotes.calls.size)
+    }
+
+    @Test fun resumeAfterTheDeviceSleptAgesTheQuotesAndRefreshesAtOnce() = runTest {
+        val r = Rig(this, splitClock = true)
+        r.quotes.onRefresh = { s, _ -> r.open(s) }
+        runCurrent()
+        tick(10_000)
+        r.active.value = false
+        runCurrent()
+        // the head unit sleeps for 20 minutes: wall time moves, the monotonic clock and delay() do not
+        (r.clock as SplitClock).sleep(20 * 60_000L)
+        tick(1_000)
+        r.active.value = true
+        runCurrent()
+        assertEquals(listOf(20 * 60_000L), r.quotes.shifts)
+        assertEquals(2, r.quotes.calls.size) // refreshed at once although the monotonic gap was only 11 s
+    }
+
+    @Test fun anAwayPeriodOverAMinuteIgnoresTheMinimumGapEvenOnAClockThatCountsSleep() = runTest {
+        val r = Rig(this)
+        r.quotes.onRefresh = { s, _ -> r.open(s) }
+        runCurrent()
+        tick(1_000)
+        r.active.value = false
+        runCurrent()
+        tick(2 * 60_000L)
+        r.active.value = true
+        runCurrent()
+        assertEquals(2, r.quotes.calls.size)
+        assertTrue(r.quotes.shifts.isEmpty()) // monotonic time already included the whole absence
+    }
+
+    @Test fun agesAreRecomputedBeforeTheFirstPassOnResume() = runTest {
+        val r = Rig(this)
+        runCurrent()
+        val before = r.quotes.agesCalls.size
+        r.active.value = false
+        runCurrent()
+        r.active.value = true
+        runCurrent()
+        assertTrue(r.quotes.agesCalls.size >= before + 1)
+    }
+
+    @Test fun manualRefreshPressesCloserThanFiveSecondsAreIgnored() = runTest {
+        val r = Rig(this)
+        runCurrent()
+        r.controller.refreshAll()
+        runCurrent()
+        tick(2_000)
+        r.controller.refreshAll()
+        runCurrent()
+        assertEquals(2, r.quotes.calls.size) // the start pass and one manual
+        tick(3_000)
+        r.controller.refreshAll()
+        runCurrent()
+        assertEquals(3, r.quotes.calls.size)
+        // Retry is debounced per symbol
+        r.controller.refresh("A"); r.controller.refresh("A"); r.controller.refresh("B")
+        runCurrent()
+        assertEquals(5, r.quotes.calls.size)
     }
 }

@@ -45,6 +45,8 @@ fun main(args: Array<String>) {
     shot("detail_1y", F.detail("MSFT", ChartRange.Y1))
     shot("detail_loading", F.detailLoading("MSFT", ChartRange.M3))
     shot("detail_error", F.detailError("MSFT", ChartRange.M3))
+    shot("detail_chart_stale", F.detailChartStale())
+    shot("markets_glance", F.glance())
     shot("add_results", F.addWithResults())
     shot("add_suggestions", F.addSuggestions())
     shot("add_offline", F.addOffline())

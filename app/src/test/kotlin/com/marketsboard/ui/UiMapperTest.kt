@@ -234,7 +234,7 @@ class UiMapperTest {
         assertEquals(41.0, d.refClose!!, 0.0)
         assertEquals("today", d.rangeLabel)
         val stats = d.stats.associate { it.label to it.value }
-        assertEquals("41.00", stats["Previous close"])
+        assertEquals("41.00", stats["Prev. session close"])
         assertEquals("43.00", stats["Day high"])
         assertEquals("40.50", stats["Day low"])
         assertEquals("TSX", stats["Exchange"])
@@ -273,7 +273,33 @@ class UiMapperTest {
         val d = UiMapper.detail(xeqt, ChartRange.D1, emptyMap(), 0, now)
         assertNull(d.price)
         assertTrue(d.change.isNaN())
-        assertEquals(NO_VALUE, d.stats.first { it.label == "Previous close" }.value)
+        assertEquals(NO_VALUE, d.stats.first { it.label == "Prev. session close" }.value)
         assertEquals(NO_VALUE, d.stats.first { it.label == "As of" }.value)
+    }
+
+    // ---- audit round: chart context --------------------------------------------------------------------------
+
+    @Test fun detailChartHasStartEndHighLowAndAnAsOfLabel() {
+        val pts = List(5) { SeriesPoint(1_794_800_000_000L + it * 300_000L, 40.0 + it * 2) }
+        val qr = q(price = 48.0, prev = 40.0).copy(range = ChartRange.D1, series = pts)
+        val st = mapOf(key("XEQT.TO") to fresh(qr))
+        val d = UiMapper.detail(xeqt, ChartRange.D1, st, 0, now)
+        assertEquals(48.0, d.rangeHigh!!, 0.0)
+        assertEquals(40.0, d.rangeLow!!, 0.0)
+        assertTrue(d.chartStart.endsWith("ET"))
+        assertTrue(d.chartEnd.startsWith("as of "))
+        assertEquals("", d.chartNote) // 1D failures are shown by the row status instead
+        val y = UiMapper.detail(xeqt, ChartRange.Y1, st + (QuoteRepository.keyFor("XEQT.TO", ChartRange.Y1) to fresh(qr.copy(range = ChartRange.Y1))), 0, now)
+        assertTrue("1Y labels are dates: ${y.chartStart}", Regex("[A-Z][a-z]{2} \\d{1,2}, \\d{4}").matches(y.chartStart))
+    }
+
+    @Test fun aHeldRangeThatFailedToRefreshCarriesAnAmberNote() {
+        val d1 = fresh(seriesQuote(ChartRange.D1))
+        val m3 = failed(seriesQuote(ChartRange.M3), ErrorKind.Network, 40 * 60_000)
+        val d = UiMapper.detail(xeqt, ChartRange.M3, mapOf(key("XEQT.TO") to d1, QuoteRepository.keyFor("XEQT.TO", ChartRange.M3) to m3), 0, now)
+        assertEquals(ChartLoad.Ready, d.chart) // the held chart stays visible
+        assertEquals("Chart not refreshed: can't reach the data service", d.chartNote)
+        val stale = d1.let { mapOf(key("XEQT.TO") to it, QuoteRepository.keyFor("XEQT.TO", ChartRange.M3) to stale(seriesQuote(ChartRange.M3), 7 * 3_600_000L)) }
+        assertEquals("Chart updated 7 h ago", UiMapper.detail(xeqt, ChartRange.M3, stale, 0, now).chartNote)
     }
 }

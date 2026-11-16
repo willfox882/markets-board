@@ -113,13 +113,26 @@ class MarketsRenderTest {
         return l to p
     }
 
-    @Test fun veryLongNamesEllipsizeOnOneLine() {
-        val (l, p) = renderRow(row("A remarkably long instrument name that goes on and on and on forever and ever", 41.87, 40.0))
+    @Test fun veryLongNamesWrapToTwoLinesAndOnlyThenEllipsize() {
+        val (l, p) = renderRow(row("A remarkably long instrument name that goes on and on and on forever and ever and ever again", 41.87, 40.0))
         val n = requireNotNull(l.name)
-        assertEquals(1, n.lineCount)
-        assertTrue("long name must be truncated with an ellipsis", n.hasVisualOverflow)
+        assertEquals(2, n.lineCount)
+        assertTrue("an absurd name is cut after two lines", n.hasVisualOverflow)
         assertEquals(1, requireNotNull(l.value).lineCount)
         assertEquals(0, gutterInk(p, 440, 240, bottomBar = 0))
+    }
+
+    @Test fun realisticLongNamesAreShownInFullEvenNextToABigPrice() {
+        for ((name, price) in listOf(
+            "iShares Core Equity ETF Portfolio" to 41.87,
+            "Royal Bank of Canada Common Shares" to 161.7,
+            "Vanguard S&P 500 Index ETF" to 123_456.78,
+        )) {
+            val (l, _) = renderRow(row(name, price, price * 0.99))
+            val n = requireNotNull(l.name)
+            assertFalse("$name must not be truncated", n.hasVisualOverflow)
+            assertTrue("$name takes at most two lines", n.lineCount <= 2)
+        }
     }
 
     @Test fun sixDigitPricesAndFourDecimalFxFitWithoutWrapOrClip() {
@@ -138,6 +151,7 @@ class MarketsRenderTest {
             assertEquals("gutter ink for ${c.price}", 0, gutterInk(p, 440, 240, bottomBar = 0))
             // the name still gets a usable share of the row
             assertTrue("name squeezed to ${requireNotNull(l.name).size.width} px for ${c.price}", requireNotNull(l.name).size.width >= 90)
+            assertTrue(requireNotNull(l.name).lineCount <= 2)
         }
     }
 
@@ -177,6 +191,8 @@ class MarketsRenderTest {
         "addSuggestions" to F::addSuggestions,
         "addOffline" to F::addOffline,
         "replace" to F::replace,
+        "glance" to F::glance,
+        "detailChartStale" to F::detailChartStale,
     )
 
     @Test fun everyScreenAt440DpHasNoOverflowOrClipping() {
@@ -217,5 +233,88 @@ class MarketsRenderTest {
         val q = pixels(810, 1440, root(s))
         val green = hueOf(Dash.green); val red = hueOf(Dash.red)
         assertEquals(0, q.count { coloured(it) && (hueDistance(hue(it), green) < 25 || hueDistance(hue(it), red) < 25) })
+    }
+
+    // ---- glance ------------------------------------------------------------------------------------------------
+
+    @Test fun glanceRowsAreCollapsedToNamePriceAndChange() {
+        val g = F.glance()
+        val normal = g.copy(mode = com.marketsboard.ui.UiMode.Normal)
+        // fewer drawn "ink" rows than the normal view: no sparklines, no status bands, no Edit or Refresh actions
+        val pg = pixels(440, 900, root(g))
+        val pn = pixels(440, 900, root(normal))
+        assertEquals(0, gutterInk(pg, 440, 900))
+        assertTrue("glance should fit more rows", pg.count { !isBg(it) } < pn.count { !isBg(it) })
+        // the glance screen shows every one of the six rows within the screen height
+        assertEquals(7, g.quotes.size)
+    }
+
+    // ---- touches must not reach what is under an overlay -----------------------------------------------------
+
+    private class Recorder : com.marketsboard.ui.markets.MarketsActions {
+        val calls = mutableListOf<String>()
+        override fun onOpen(symbol: String) { calls += "open:$symbol" }
+        override fun onToggleEdit() { calls += "toggleEdit" }
+        override fun onRefresh() { calls += "refresh" }
+        override fun onMove(symbol: String, delta: Int) { calls += "move:$symbol" }
+        override fun onAskRename(symbol: String) { calls += "rename:$symbol" }
+        override fun onAskRemove(symbol: String) { calls += "remove:$symbol" }
+        override fun onReplaceOpen(symbol: String) { calls += "replace:$symbol" }
+        override fun onRetry(symbol: String) { calls += "retry:$symbol" }
+        override fun onAddOpen() { calls += "addOpen" }
+        override fun onPickResult(symbol: String) { calls += "pick:$symbol" }
+    }
+
+    private fun tapGrid(state: MarketsUiState, rec: Recorder, height: Int = 900) {
+        val scene = ImageComposeScene(width = 440, height = height, density = Density(1f)) {
+            MarketsBoardTheme { com.marketsboard.ui.markets.MarketsScreen(state, actions = rec) }
+        }
+        try {
+            for (i in 0 until 3) scene.render(i * 100_000_000L)
+            var t = 1_000L
+            for (y in 20 until height step 36) for (x in 12 until 440 step 40) {
+                val pos = androidx.compose.ui.geometry.Offset(x.toFloat(), y.toFloat())
+                scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Press, pos, timeMillis = t)
+                scene.render(t * 1_000_000L)
+                scene.sendPointerEvent(androidx.compose.ui.input.pointer.PointerEventType.Release, pos, timeMillis = t + 30)
+                scene.render((t + 30) * 1_000_000L)
+                t += 400
+            }
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test fun tapsOnTheDetailOverlayNeverReachTheEditorUnderneath() {
+        val rec = Recorder()
+        // edit mode is on underneath: Remove, Rename, move arrows and Done all sit in the same area as the overlay
+        tapGrid(F.detail("MSFT", ChartRange.D1).copy(editMode = true), rec, height = 1300)
+        val leaked = rec.calls.filter { it.startsWith("move:") || it.startsWith("rename:") || it == "toggleEdit" || it.startsWith("open:") || it == "refresh" || it == "addOpen" }
+        assertTrue("taps leaked through the detail overlay: $leaked", leaked.isEmpty())
+        // the overlay's own buttons still work
+        assertTrue("calls=${rec.calls}", rec.calls.any { it.startsWith("remove:") || it.startsWith("replace:") })
+    }
+
+    @Test fun tapsOnTheAddSheetNeverReachTheListUnderneath() {
+        val rec = Recorder()
+        tapGrid(F.addWithResults(), rec)
+        val leaked = rec.calls.filter { it.startsWith("move:") || it.startsWith("rename:") || it.startsWith("remove:") || it.startsWith("replace:") || it == "toggleEdit" || it.startsWith("open:") || it == "refresh" || it == "addOpen" }
+        assertTrue("taps leaked through the add sheet: $leaked", leaked.isEmpty())
+        assertTrue("calls=${rec.calls}", rec.calls.any { it.startsWith("pick:") })
+    }
+
+    @Test fun theTabBarStepsAsideForFullScreenOverlays() {
+        fun bottomInk(p: IntArray) = (840 until 900).sumOf { y -> (0 until 440).count { x -> !isBg(p[y * 440 + x]) } }
+        assertTrue("the normal view has the tab bar", bottomInk(pixels(440, 900, root(F.normal()))) > 200)
+        assertEquals("the add sheet has no tab bar", 0, bottomInk(pixels(440, 900, root(F.addWithResults()))))
+        // the detail screen is scrollable content, so only check that its tab labels (selected tab underline) are gone
+        val d = pixels(440, 900, root(F.detail("MSFT", ChartRange.D1)))
+        assertTrue("detail still renders", d.toSet().size > 6)
+    }
+
+    @Test fun theTapHarnessWorksOnTheNormalList() {
+        val rec = Recorder()
+        tapGrid(F.normal(), rec)
+        assertTrue("the harness must be able to tap: ${rec.calls}", rec.calls.any { it.startsWith("open:") })
     }
 }

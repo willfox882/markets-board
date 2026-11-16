@@ -1,5 +1,6 @@
 package com.marketsboard.data.repo
 
+import com.marketsboard.core.PollPolicy
 import com.marketsboard.data.Clock
 import com.marketsboard.data.model.ChartRange
 import com.marketsboard.data.model.ErrorKind
@@ -110,7 +111,7 @@ class QuoteRepository(
             if (age != null && age > config.maxStaleMs) continue
             val anchor = age?.let { clock.monoMs() - it }
             val skew = wallAge < -config.skewToleranceMs || skewed(quote, wallNow)
-            val status = statusFor(range, age, hadError = false)
+            val status = statusFor(range, age, hadError = false, quote = quote)
             _states.update { m -> if (m.containsKey(key) || gone(key)) m else m + (key to QuoteState(quote, status, entry.savedAtMs, null, skew, anchor)) }
         }
     }
@@ -138,11 +139,24 @@ class QuoteRepository(
             m.mapValues { (_, st) ->
                 val q = st.quote
                 if (q == null) st else st.copy(
-                    status = statusFor(q.range, st.anchorMono?.let { (mono - it).coerceAtLeast(0) }, st.lastError != null),
+                    status = statusFor(q.range, st.anchorMono?.let { (mono - it).coerceAtLeast(0) }, st.lastError != null, q),
                     clockSkew = skewed(q, wallNow) || (st.clockSkew && st.anchorMono == null),
                 )
             }
         }
+    }
+
+    /**
+     * The device slept (or the app was frozen) for [ms] without the monotonic clock noticing: make every held quote
+     * that much older and shorten cooldowns by the same amount, then recompute. Not needed on a clock that already
+     * includes sleep (Android `elapsedRealtime`); the refresh controller only calls it for the difference between the
+     * wall and monotonic clocks.
+     */
+    override fun ageShift(ms: Long) {
+        if (ms <= 0) return
+        _states.update { m -> m.mapValues { (_, st) -> if (st.anchorMono == null) st else st.copy(anchorMono = st.anchorMono - ms) } }
+        synchronized(health) { cooldownUntil.replaceAll { _, v -> v - ms } }
+        recomputeAges()
     }
 
     /**
@@ -342,7 +356,7 @@ class QuoteRepository(
             val q = st?.quote
             val next = if (q != null) {
                 val age = st.anchorMono?.let { (mono - it).coerceAtLeast(0) }
-                st.copy(status = statusFor(q.range, age, hadError = true), lastError = err)
+                st.copy(status = statusFor(q.range, age, hadError = true, quote = q), lastError = err)
             } else {
                 QuoteState(null, QuoteStatus.Error(err.kind), null, err)
             }
@@ -351,10 +365,21 @@ class QuoteRepository(
     }
 
     /** Unknown age (null) is never Fresh. */
-    private fun statusFor(range: ChartRange, ageMs: Long?, hadError: Boolean): QuoteStatus = when {
+    private fun statusFor(range: ChartRange, ageMs: Long?, hadError: Boolean, quote: Quote? = null): QuoteStatus = when {
         ageMs == null -> QuoteStatus.Stale(0, ageKnown = false)
-        !hadError && ageMs <= config.staleAfterMs(range) -> QuoteStatus.Fresh
+        !hadError && ageMs <= staleLimit(range, quote) -> QuoteStatus.Fresh
         else -> QuoteStatus.Stale(ageMs)
+    }
+
+    /**
+     * Age limit before a quote counts as stale. 1D quotes use the larger of the configured limit and 2.5 times the
+     * poll interval of the symbol's market phase (see [PollPolicy]), so a closed market that is polled every 30 min
+     * does not flicker to "Stale" five minutes after each fetch.
+     */
+    private fun staleLimit(range: ChartRange, quote: Quote?): Long {
+        val base = config.staleAfterMs(range)
+        if (range != ChartRange.D1 || quote == null) return base
+        return maxOf(base, (PollPolicy.nominalIntervalMs(quote, clock.nowMs()) * 5) / 2)
     }
 
     private fun skewed(q: Quote, wallNow: Long) = wallNow < q.asOfEpochMs - config.skewToleranceMs

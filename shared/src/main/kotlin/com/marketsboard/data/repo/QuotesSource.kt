@@ -26,5 +26,8 @@ interface QuotesSource {
     /** Recomputes Fresh/Stale for every held quote without touching the network. */
     fun recomputeAges()
 
+    /** Makes every held quote [ms] older (the device slept without the monotonic clock noticing). */
+    fun ageShift(ms: Long)
+
     suspend fun forget(symbol: String)
 }

@@ -34,6 +34,7 @@ import com.marketsboard.ui.Label
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
 import com.marketsboard.ui.SwitchRow
+import com.marketsboard.ui.UiMode
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -42,7 +43,8 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
     var latency by remember { mutableStateOf(0f) }
     var skew by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1) }
-    val active by env.active.collectAsState()
+    val active by env.gate.isActive.collectAsState()
+    val glance by env.uiMode.collectAsState()
     val drop by env.dropSecondsLeft.collectAsState()
     val refreshing by env.quotes.refreshing.collectAsState()
 
@@ -68,7 +70,8 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
             colors = SliderDefaults.colors(thumbColor = Dash.text, activeTrackColor = Dash.text, inactiveTrackColor = Dash.line),
         )
         SwitchRow("Clock skew", skew, { skew = it; env.time.deviceSkewMs = if (it) -45 * 60_000L else 0L }, subtitle = "Device clock 45 min behind the data")
-        SwitchRow("App active", active, { env.active.value = it }, subtitle = "Off pauses all refreshing, like a paused Activity")
+        SwitchRow("Glance mode", glance == UiMode.Glance, { env.uiMode.value = if (it) UiMode.Glance else UiMode.Normal }, subtitle = "Minimal view: name, price, change only")
+        SwitchRow("App active", active, { if (it) env.gate.resume() else env.gate.pause() }, subtitle = "Off pauses all refreshing, like a paused Activity")
         Label("Time speed")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(1, 10, 60).forEach { s -> Chip("x$s", selected = s == speed) { speed = s; env.time.speed = s.toDouble() } }
