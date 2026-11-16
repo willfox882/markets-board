@@ -2,6 +2,7 @@ package com.marketsboard.data.store
 
 import com.marketsboard.data.Clock
 import com.marketsboard.data.model.ChartRange
+import com.marketsboard.data.model.Currencies
 import com.marketsboard.data.model.ErrorKind
 import com.marketsboard.data.model.FetchResult
 import com.marketsboard.data.model.WatchItem
@@ -12,6 +13,7 @@ import com.marketsboard.data.provider.asObj
 import com.marketsboard.data.provider.num
 import com.marketsboard.data.provider.str
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
@@ -53,16 +55,19 @@ sealed interface AddOutcome {
 }
 
 /** How the file was interpreted on load. */
-enum class LoadStatus { Fresh, Loaded, RecoveredFromCorrupt, NewerVersionReadOnly, Unreadable }
+enum class LoadStatus { Fresh, Loaded, RecoveredFromCorrupt, RecoveredFromBackup, NewerVersionReadOnly, Unreadable }
 
 /**
  * The user's watchlist, persisted as `{ "version": 1, "items": [...] }` in [file].
  *
  * Guarantees:
- * - every successful edit is written atomically (temp file + rename) before the call returns
- * - a corrupt file is renamed to `watchlist.corrupt-<ts>.json` (never deleted) and defaults are used
+ * - every successful edit is written to a temp file, fsync'ed, then atomically renamed, before the call returns;
+ *   the previous good file is first copied to `watchlist.bak`
+ * - a corrupt, truncated or empty file (power cut) is recovered from `watchlist.bak` when that is valid, otherwise
+ *   defaults are used; a non-empty corrupt file is renamed to `watchlist.corrupt-<ts>.json` (never deleted)
+ * - a failed write keeps the edit in memory and is retried by the next edit or by [flushIfDirty]
  * - items that fail to parse are dropped from the list but the original file is copied aside first
- * - a file with a HIGHER version is never overwritten: defaults are shown, edits return [EditResult.ReadOnly]
+ * - a file with a HIGHER version is never overwritten: its readable items are shown, edits return [EditResult.ReadOnly]
  * - unknown JSON fields are ignored on read (and not preserved on rewrite)
  * File IO is a few hundred bytes on the calling thread, guarded by one lock; M2 calls it from Dispatchers.IO.
  */
@@ -185,8 +190,14 @@ class WatchlistStore(
         return EditResult.Done(persist(next))
     }
 
+    /** Retries a failed write now. Call it from the refresh loop or on resume. True when nothing is pending. */
+    fun flushIfDirty(): Boolean = synchronized(lock) { if (!dirty || readOnly) true else persist(_items.value) }
+
+    private fun backupFile(): File = File(file.absoluteFile.parentFile, file.nameWithoutExtension + ".bak")
+
     private fun persist(list: List<WatchItem>): Boolean {
         val ok = try {
+            keepPreviousAsBackup()
             writeAtomic(file, encode(list))
             true
         } catch (e: IOException) {
@@ -201,11 +212,62 @@ class WatchlistStore(
         return ok
     }
 
+    /** Copies the current file to watchlist.bak, but only if it is a valid current-version file. Best effort. */
+    private fun keepPreviousAsBackup() {
+        try {
+            if (!file.isFile || file.length() == 0L) return
+            val text = file.readText(StandardCharsets.UTF_8)
+            if (parse(text) is Parsed.Valid) writeAtomic(backupFile(), text)
+        } catch (e: IOException) {
+            // The backup is a bonus; the edit itself must still go through.
+        }
+    }
+
+    private sealed interface Parsed {
+        class Valid(val items: List<WatchItem>, val dropped: Int) : Parsed
+        class Newer(val items: List<WatchItem>) : Parsed
+        data object Invalid : Parsed
+    }
+
+    private fun parse(text: String): Parsed {
+        val root = Js.parse(text).asObj() ?: return Parsed.Invalid
+        val version = root.num("version")?.takeIf { it == Math.floor(it) }?.toInt()
+        val itemsArr = root.arr("items")
+        if (version == null || version < 1 || itemsArr == null) return Parsed.Invalid
+        val parsed = ArrayList<WatchItem>()
+        var dropped = 0
+        for (e in itemsArr) {
+            val item = e.asObj()?.let { o ->
+                sanitize(WatchItem(o.str("symbol").orEmpty(), o.str("name").orEmpty(), o.str("currency").orEmpty(), o.str("exchange").orEmpty(), o.str("displayName")))
+            }
+            if (item == null || parsed.any { it.symbol == item.symbol }) dropped++ else parsed.add(item)
+        }
+        return if (version > VERSION) {
+            Parsed.Newer(if (parsed.isEmpty() && itemsArr.isNotEmpty()) DEFAULTS else parsed.take(MAX_ITEMS))
+        } else {
+            Parsed.Valid(parsed.take(MAX_ITEMS), dropped)
+        }
+    }
+
+    private fun readBackup(): List<WatchItem>? = try {
+        val b = backupFile()
+        if (b.isFile) (parse(b.readText(StandardCharsets.UTF_8)) as? Parsed.Valid)?.items else null
+    } catch (e: IOException) {
+        null
+    }
+
     private fun load() {
         if (!file.exists()) {
-            loadStatus = LoadStatus.Fresh
-            _items.value = DEFAULTS
-            persist(DEFAULTS)
+            val bak = readBackup()
+            if (bak != null) {
+                loadStatus = LoadStatus.RecoveredFromBackup
+                _items.value = bak
+                persist(bak)
+            } else {
+                loadStatus = LoadStatus.Fresh
+                _items.value = DEFAULTS
+                persist(DEFAULTS)
+            }
             return
         }
         val text = try {
@@ -216,32 +278,30 @@ class WatchlistStore(
             _items.value = DEFAULTS
             return
         }
-        val root = Js.parse(text).asObj()
-        val version = root?.num("version")?.takeIf { it == Math.floor(it) }?.toInt()
-        val itemsArr = root?.arr("items")
-        if (root == null || version == null || version < 1 || itemsArr == null) {
-            quarantine(rename = true)
-            loadStatus = LoadStatus.RecoveredFromCorrupt
-            _items.value = DEFAULTS
-            persist(DEFAULTS)
-            return
-        }
-        if (version > VERSION) {
-            loadStatus = LoadStatus.NewerVersionReadOnly
-            _items.value = DEFAULTS
-            return
-        }
-        val parsed = ArrayList<WatchItem>()
-        var dropped = 0
-        for (e in itemsArr) {
-            val item = e.asObj()?.let { o ->
-                sanitize(WatchItem(o.str("symbol").orEmpty(), o.str("name").orEmpty(), o.str("currency").orEmpty(), o.str("exchange").orEmpty(), o.str("displayName")))
+        when (val p = parse(text)) {
+            is Parsed.Valid -> {
+                if (p.dropped > 0) quarantine(rename = false) // keep the original; the next edit rewrites a clean file
+                loadStatus = LoadStatus.Loaded
+                _items.value = p.items
             }
-            if (item == null || parsed.any { it.symbol == item.symbol }) dropped++ else parsed.add(item)
+            is Parsed.Newer -> {
+                loadStatus = LoadStatus.NewerVersionReadOnly
+                _items.value = p.items
+            }
+            Parsed.Invalid -> {
+                if (file.length() > 0L) quarantine(rename = true)
+                val bak = readBackup()
+                if (bak != null) {
+                    loadStatus = LoadStatus.RecoveredFromBackup
+                    _items.value = bak
+                    persist(bak)
+                } else {
+                    loadStatus = LoadStatus.RecoveredFromCorrupt
+                    _items.value = DEFAULTS
+                    persist(DEFAULTS)
+                }
+            }
         }
-        if (dropped > 0) quarantine(rename = false) // keep the original; the next edit rewrites a clean file
-        loadStatus = LoadStatus.Loaded
-        _items.value = parsed.take(MAX_ITEMS)
     }
 
     /** Preserves the offending file as watchlist.corrupt-<ts>.json (renamed or copied); keeps at most 5 such files. */
@@ -300,7 +360,7 @@ class WatchlistStore(
             return WatchItem(
                 symbol = sym,
                 name = cleanText(item.name, MAX_NAME).ifEmpty { sym },
-                currency = cleanText(item.currency, 5).uppercase(),
+                currency = Currencies.normalize(cleanText(item.currency, 5)),
                 exchange = cleanText(item.exchange, 30),
                 displayName = cleanDisplayName(item.displayName),
             )
@@ -311,11 +371,16 @@ class WatchlistStore(
         private fun cleanText(s: String, max: Int): String =
             s.filter { !it.isISOControl() }.trim().replace(Regex("\\s+"), " ").take(max)
 
+        /** Temp file, fsync, atomic rename: after a power cut the target is either the old or the new content. */
         internal fun writeAtomic(target: File, text: String) {
             val dir = target.absoluteFile.parentFile
             dir?.mkdirs()
             val tmp = File(dir, target.name + ".tmp")
-            tmp.writeText(text, StandardCharsets.UTF_8)
+            FileOutputStream(tmp).use { out ->
+                out.write(text.toByteArray(StandardCharsets.UTF_8))
+                out.flush()
+                out.fd.sync()
+            }
             try {
                 Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
             } catch (e: AtomicMoveNotSupportedException) {

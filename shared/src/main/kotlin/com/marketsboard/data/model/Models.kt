@@ -1,5 +1,7 @@
 package com.marketsboard.data.model
 
+import java.util.Locale
+
 /** A searchable instrument as returned by provider search. Currency is often unknown ("") until a quote is fetched. */
 data class Instrument(
     val symbol: String,
@@ -57,7 +59,43 @@ data class Quote(
     val series: List<SeriesPoint>,
     val range: ChartRange,
     val instrumentType: String? = null,
-)
+    /** Id of the provider that produced this price (set by the provider; the repository stamps it when blank). */
+    val source: String = "",
+    /** Regular session window of the exchange (epoch ms) when the provider says so, for market-hours aware refresh. */
+    val sessionStartMs: Long? = null,
+    val sessionEndMs: Long? = null,
+    /** IANA zone of the exchange, e.g. America/Toronto. */
+    val exchangeTimezoneName: String? = null,
+    /** Provider's suggested number of decimals (Yahoo `priceHint`): FX needs 4, equities and indices 2. */
+    val priceHint: Int? = null,
+) {
+    /** Decimals to show: the provider's hint, else 4 for currency pairs, else 2. */
+    val decimals: Int get() = priceHint?.takeIf { it in 0..8 } ?: if (instrumentType.equals("CURRENCY", ignoreCase = true)) 4 else 2
+}
+
+/**
+ * Currency code handling. Providers quote some London, Johannesburg and Tel Aviv listings in MINOR units (pence,
+ * cents, agorot) with a mixed-case code (`GBp`, `ZAc`). Upper-casing those would label pence as pounds, so they map
+ * to the distinct codes GBX, ZAC and ILA; the UI must not show them as GBP, ZAR or ILS.
+ */
+object Currencies {
+    private val MINOR = mapOf("GBX" to "GBP", "ZAC" to "ZAR", "ILA" to "ILS")
+
+    fun normalize(raw: String?): String {
+        val s = raw?.trim().orEmpty()
+        return when {
+            s == "GBp" || s.equals("GBX", ignoreCase = true) -> "GBX"
+            s == "ZAc" || s.equals("ZAC", ignoreCase = true) -> "ZAC"
+            s.equals("ILA", ignoreCase = true) -> "ILA"
+            else -> s.uppercase(Locale.ROOT)
+        }
+    }
+
+    fun isMinorUnit(code: String): Boolean = code in MINOR
+
+    /** The major currency of a minor unit code (GBX gives GBP), else the code itself. */
+    fun majorOf(code: String): String = MINOR[code] ?: code
+}
 
 sealed interface ErrorKind {
     data object Network : ErrorKind
@@ -67,6 +105,9 @@ sealed interface ErrorKind {
     data object Parse : ErrorKind
     data class Http(val code: Int) : ErrorKind
     data object Unknown : ErrorKind
+
+    /** TLS failed on a certificate date check: almost always a wrong device date or time. */
+    data object ClockOrTls : ErrorKind
 
     /** Short stable name for logs and the diagnostics screen. */
     val label: String
@@ -78,6 +119,7 @@ sealed interface ErrorKind {
             Parse -> "parse"
             is Http -> "http_$code"
             Unknown -> "unknown"
+            ClockOrTls -> "clock_or_tls"
         }
 }
 
@@ -111,6 +153,9 @@ object QuoteValidator {
                 dayHigh = q.dayHigh.takeIf { validPrice(it) },
                 dayLow = q.dayLow.takeIf { validPrice(it) },
                 marketState = q.marketState?.trim()?.takeIf { it.isNotEmpty() },
+                sessionStartMs = q.sessionStartMs?.takeIf { it > 0 },
+                sessionEndMs = q.sessionEndMs?.takeIf { it > 0 },
+                priceHint = q.priceHint?.takeIf { it in 0..8 },
                 series = series,
             ),
         )

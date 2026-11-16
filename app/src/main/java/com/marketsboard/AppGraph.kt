@@ -1,6 +1,7 @@
 package com.marketsboard
 
 import com.marketsboard.data.Clock
+import com.marketsboard.data.model.WatchItem
 import com.marketsboard.data.net.FetchLog
 import com.marketsboard.data.net.HttpFetcher
 import com.marketsboard.data.net.JvmHttpFetcher
@@ -9,6 +10,7 @@ import com.marketsboard.data.provider.MarketDataProvider
 import com.marketsboard.data.provider.StooqProvider
 import com.marketsboard.data.provider.YahooChartProvider
 import com.marketsboard.data.repo.QuoteRepository
+import com.marketsboard.data.store.EditResult
 import com.marketsboard.data.store.FileJsonCache
 import com.marketsboard.data.store.WatchlistStore
 import java.io.File
@@ -31,4 +33,21 @@ class AppGraph(filesDir: File, clock: Clock = Clock.System, rawFetcher: HttpFetc
         clock = clock,
         hints = { sym -> watchlist.items.value.firstOrNull { it.symbol == sym } },
     )
+
+    /**
+     * The UI's removal hook: removes the item and drops everything held for it (state, cache entries, series).
+     * Use this instead of `watchlist.remove` so deleted instruments leave no cache behind.
+     */
+    suspend fun removeFromWatchlist(symbol: String): EditResult {
+        val r = watchlist.remove(symbol)
+        if (r is EditResult.Done) quotes.forget(symbol)
+        return r
+    }
+
+    /** Swap hook: replaces the item keeping its position and forgets the old symbol's data. */
+    suspend fun replaceInWatchlist(old: String, new: WatchItem): EditResult {
+        val r = watchlist.replace(old, new)
+        if (r is EditResult.Done && !old.trim().equals(new.symbol.trim(), ignoreCase = true)) quotes.forget(old)
+        return r
+    }
 }

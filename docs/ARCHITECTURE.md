@@ -21,21 +21,21 @@
 - `.../ui/news/NewsUi.kt`: `HeadlineUi` and `NewsUiState`.
 - `.../ui/news/NewsScreen.kt`: stateless headlines list.
 - `.../ui/settings/SettingsScreen.kt`: Settings placeholder (local-state switch, value rows, pill button).
-- `.../data/Clock.kt`: injectable wall clock (`Clock.System`); used for cache ages, backoff and log times only, never for market timestamps.
-- `.../data/model/Models.kt`: `Instrument`, `WatchItem`, `ChartRange` (+ Yahoo range/interval), `SeriesPoint`, `Quote` (provider-time `asOfEpochMs`), `ErrorKind`, `FetchResult` (Ok/Err), `QuoteValidator` (price/series sanity rules).
+- `.../data/Clock.kt`: injectable clock: wall `nowMs` (persisted times, skew detection) and monotonic `monoMs` (in-process ages, throttling, cooldowns); never used for market timestamps.
+- `.../data/model/Models.kt`: `Instrument`, `WatchItem`, `ChartRange` (+ Yahoo range/interval), `SeriesPoint`, `Quote` (provider-time `asOfEpochMs`, `source`, session window, timezone, `priceHint`/`decimals`), `Currencies` (GBp to GBX etc), `ErrorKind` (incl. `ClockOrTls`), `FetchResult` (Ok/Err), `QuoteValidator` (price/series sanity rules).
 - `.../data/net/HttpFetcher.kt`: `HttpFetcher` interface, `HttpResponse` (typed `failure`, `toError()`, parsed Retry-After), `hostOf` (log-safe host).
-- `.../data/net/JvmHttpFetcher.kt`: HttpURLConnection implementation: timeouts, gzip, manual redirects (max 3, no scheme downgrade), 2 MB cap, error bodies, never throws.
+- `.../data/net/JvmHttpFetcher.kt`: HttpURLConnection implementation: timeouts, gzip, 20 s whole-fetch deadline, disconnect on cancel, manual redirects (max 3, no scheme downgrade), 2 MB cap, error bodies, `offline` and cert-date detection, never throws.
 - `.../data/net/FetchLog.kt`: `FetchEvent`, `FetchLog` (100-event ring buffer as StateFlow) and `LoggingHttpFetcher` decorator (host only, latency, outcome).
-- `.../data/provider/MarketDataProvider.kt`: provider interface (`quote`, `search`, `supports`).
+- `.../data/provider/MarketDataProvider.kt`: provider interface (`quote`, `search`, `supports(symbol)` and `supports(symbol, range)`).
 - `.../data/provider/JsonSupport.kt`: defensive accessors over the kotlinx.serialization `JsonElement` tree (wrong type or null becomes null).
 - `.../data/provider/YahooChartProvider.kt`: Yahoo chart + search provider (query1, query2 fallback host) and the pure `YahooParser`.
 - `.../data/provider/StooqProvider.kt`: best-effort Stooq CSV fallback, `YahooToStooq` symbol mapping, `StooqParser`.
 - `.../data/store/FileJsonCache.kt`: directory cache: atomic writes, per-entry TTL, total size cap with oldest-first eviction, corrupt tolerant.
 - `.../data/store/QuoteCodec.kt`: JSON encode/decode (re-validating) of a `Quote` for the cache.
 - `.../data/store/Symbols.kt`: symbol normalisation (`A-Z0-9.^=-`, 1..15).
-- `.../data/store/WatchlistStore.kt`: the owner's watchlist: `watchlist.json` v1, defaults XEQT.TO + MSFT, add/remove/move/rename/replace/reset, `validateAndAdd`, `addUnverified`, corrupt/newer-version handling, `EditResult` and `AddOutcome`.
+- `.../data/store/WatchlistStore.kt`: the owner's watchlist: `watchlist.json` v1 (+ `watchlist.bak`), defaults XEQT.TO + MSFT, add/remove/move/rename/replace/reset, `validateAndAdd`, `addUnverified`, fsync'ed atomic writes, backup recovery, corrupt/newer-version handling, `flushIfDirty`, `EditResult` and `AddOutcome`.
 - `.../data/repo/QuoteState.kt`: `QuoteState`, `QuoteStatus` (Fresh/Stale/Loading/Error) and `RepoConfig` (tunables).
-- `.../data/repo/QuoteRepository.kt`: stale-while-revalidate quote repository: provider chain, cooldown/backoff, 4-way concurrency cap, in-flight dedup, out-of-order guard, cancellation safe.
+- `.../data/repo/QuoteRepository.kt`: stale-while-revalidate quote repository: provider chain with fallback merge, cooldown/backoff, 4-way concurrency cap, network short-circuit, in-flight dedup, monotonic ages, clock skew, `forget`, cancellation safe.
 - `.../demo/DemoData.kt`: throwaway M0 demo state (XEQT.TO in CAD, MSFT in USD, headlines) supplied by MainActivity, SandboxApp and Screenshots. Nothing else depends on it; delete with `DemoDataTest.kt` when M1/M2 land.
 
 ## app/ (Android)
@@ -50,7 +50,7 @@
 - `app/src/test/kotlin/com/marketsboard/demo/DemoDataTest.kt`: demo watchlist checks (deletable with DemoData).
 - `app/src/test/kotlin/com/marketsboard/AppGraphTest.kt`: real wiring against fixtures (default watchlist quotes in CAD/USD, Stooq fallback, restart persistence, log hosts).
 - `app/src/test/kotlin/com/marketsboard/data/TestSupport.kt`: `FakeClock`, `FakeHttp`, `ScriptedProvider`, `quoteOf`, fixture loader.
-- `.../data/ModelsTest.kt`, `YahooProviderTest.kt`, `StooqProviderTest.kt`, `FileJsonCacheTest.kt`, `FetchLogTest.kt`, `WatchlistStoreTest.kt`, `QuoteRepositoryTest.kt`: data layer tests.
+- `.../data/AuditFixesTest.kt` (M1 audit regressions: fallback merge, clocks, short-circuit, backoff, currencies, watchlist backup recovery, forget), `.../data/ModelsTest.kt`, `YahooProviderTest.kt`, `StooqProviderTest.kt`, `FileJsonCacheTest.kt`, `FetchLogTest.kt`, `WatchlistStoreTest.kt`, `QuoteRepositoryTest.kt`: data layer tests.
 - `app/src/test/resources/fixtures/`: recorded-format JSON/CSV fixtures (Yahoo chart/search, Stooq CSV) written from knowledge of the real formats, NOT captured live.
 - `app/src/test/kotlin/com/marketsboard/RepoHygieneTest.kt`: repo scan (no em-dashes, no raw colour literals outside Theme.kt, green/red only in changeColor, no model names, no Android imports in shared).
 

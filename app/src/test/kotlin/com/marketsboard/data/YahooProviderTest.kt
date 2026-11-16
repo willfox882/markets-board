@@ -58,11 +58,17 @@ class YahooProviderTest {
         assertEquals(300_000L, q.series[1].tMs - q.series[0].tMs)
     }
 
-    @Test fun marketStateDerivedFromTradingPeriodWhenAbsent() {
-        // clock 1_714_750_000 s is inside [1_714_743_000, 1_714_766_400]
-        assertEquals("REGULAR", okQuote("yahoo_chart_msft_1d.json").marketState)
-        clock.now = 1_714_900_000_000L
-        assertEquals("CLOSED", okQuote("yahoo_chart_msft_1d.json").marketState)
+    @Test fun marketStateDerivedFromTradingPeriodAndFreshLastTrade() {
+        // Regular session in the fixture: 1714743000 .. 1714766400 (epoch seconds).
+        fun state(nowMs: Long, lastTradeSec: Long): String? {
+            clock.now = nowMs
+            val body = Fixtures.text("yahoo_chart_msft_1d.json").replace("\"regularMarketTime\": 1714766400", "\"regularMarketTime\": $lastTradeSec")
+            return ((runBlocking { provider(FakeHttp { ok(body) }).quote("MSFT", ChartRange.D1) }) as FetchResult.Ok).value.marketState
+        }
+        assertEquals("REGULAR", state(1_714_750_000_000L, 1_714_749_900)) // traded 100 s ago inside the window
+        assertEquals("CLOSED", state(1_714_750_000_000L, 1_714_747_000)) // inside the window but last trade 50 min old (halt, holiday)
+        assertEquals("CLOSED", state(1_714_900_000_000L, 1_714_899_900)) // outside the window
+        assertNull(state(1_714_750_000_000L, 1_714_760_000)) // device clock behind the last trade: unknown, never REGULAR
     }
 
     @Test fun nullClosesAreDroppedAndOrderKept() {

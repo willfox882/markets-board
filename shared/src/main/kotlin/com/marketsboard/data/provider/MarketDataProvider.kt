@@ -12,6 +12,9 @@ interface MarketDataProvider {
     /** False when this provider cannot serve [symbol] at all (e.g. no symbol mapping), so callers skip it. */
     fun supports(symbol: String): Boolean = true
 
+    /** False when this provider cannot serve [symbol] for [range] (e.g. no history), so callers skip it. */
+    fun supports(symbol: String, range: ChartRange): Boolean = supports(symbol)
+
     suspend fun quote(symbol: String, range: ChartRange): FetchResult<Quote>
 
     suspend fun search(query: String): FetchResult<List<Instrument>>

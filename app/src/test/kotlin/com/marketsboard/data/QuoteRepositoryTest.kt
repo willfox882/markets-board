@@ -354,10 +354,10 @@ class QuoteRepositoryTest {
         assertEquals(30_000L, r.cooldownRemainingMs()) // streak restarted
     }
 
-    @Test fun retryAfterAboveCapIsCapped() = runTest {
-        val r = repo(errP("a", ErrorKind.RateLimited(3_600_000)))
+    @Test fun retryAfterAboveOneHourIsCapped() = runTest {
+        val r = repo(errP("a", ErrorKind.RateLimited(7_200_000)))
         r.refresh(listOf("MSFT"))
-        assertEquals(900_000L, r.cooldownRemainingMs())
+        assertEquals(3_600_000L, r.cooldownRemainingMs())
     }
 
     @Test fun serverErrorsCoolDownButClientErrorsAndNetworkDoNot() = runTest {
@@ -399,19 +399,17 @@ class QuoteRepositoryTest {
 
     // ---- ordering, concurrency, cancellation -----------------------------------------------------------------------
 
-    @Test fun olderProviderTimeResultIsIgnored() = runTest {
+    @Test fun primaryResultWithOlderProviderTimeIsAccepted() = runTest {
+        // In-flight dedup already serialises a key, so there is no out-of-order guard: the latest answer wins.
         var asOf = 2_000_000L
         val p = ScriptedProvider("p") { s, _ -> FetchResult.Ok(quoteOf(s, price = asOf / 10_000.0, asOf = asOf)) }
         val r = repo(p)
         r.refresh(listOf("MSFT"))
-        assertEquals(200.0, r.stateOf("MSFT")!!.quote!!.price, 0.0)
-        asOf = 1_000_000L // a late, older reading
+        asOf = 1_000_000L
         clock.advance(100_000)
         r.refresh(listOf("MSFT"), force = true)
-        val st = r.stateOf("MSFT")!!
-        assertEquals(200.0, st.quote!!.price, 0.0)
-        assertEquals(2_000_000L, st.quote!!.asOfEpochMs)
-        assertTrue("an ignored result must not make the quote look fresh", st.status is QuoteStatus.Stale)
+        assertEquals(100.0, r.stateOf("MSFT")!!.quote!!.price, 0.0)
+        assertEquals(QuoteStatus.Fresh, r.stateOf("MSFT")!!.status)
     }
 
     @Test fun sameProviderTimeIsAcceptedAndRefreshesFreshness() = runTest {

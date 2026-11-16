@@ -12,9 +12,15 @@ import com.marketsboard.data.provider.MarketDataProvider
 import java.io.File
 import java.nio.file.Files
 
-class FakeClock(var now: Long = 1_700_000_000_000L) : Clock {
+/** Wall clock [now] and monotonic [mono] move together on [advance]; [jumpWall] simulates a device clock change. */
+class FakeClock(var now: Long = 1_700_000_000_000L, var mono: Long = 5_000_000L) : Clock {
     override fun nowMs(): Long = now
+    override fun monoMs(): Long = mono
     fun advance(ms: Long) {
+        now += ms
+        mono += ms
+    }
+    fun jumpWall(ms: Long) {
         now += ms
     }
 }

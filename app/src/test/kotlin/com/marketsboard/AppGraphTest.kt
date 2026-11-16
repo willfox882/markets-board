@@ -82,4 +82,17 @@ class AppGraphTest {
         g2.quotes.hydrate(listOf("MSFT"))
         assertEquals(413.54, g2.quotes.stateOf("MSFT")!!.quote!!.price, 1e-9)
     }
+
+    @Test fun removeHookDropsWatchlistItemAndEverythingHeldForIt() = runBlocking {
+        val dir = tempDir()
+        val g = AppGraph(dir, clock, FakeHttp(::serve))
+        g.quotes.refresh(listOf("MSFT", "XEQT.TO"))
+        assertTrue(g.cache.get("quote/MSFT/1D") != null)
+        assertTrue(g.removeFromWatchlist("MSFT") is com.marketsboard.data.store.EditResult.Done)
+        assertEquals(listOf("XEQT.TO"), g.watchlist.items.value.map { it.symbol })
+        assertEquals(null, g.quotes.stateOf("MSFT"))
+        assertEquals(null, g.cache.get("quote/MSFT/1D", allowExpired = true))
+        assertTrue(g.quotes.stateOf("XEQT.TO") != null)
+        assertTrue(g.removeFromWatchlist("MSFT") is com.marketsboard.data.store.EditResult.NotFound)
+    }
 }

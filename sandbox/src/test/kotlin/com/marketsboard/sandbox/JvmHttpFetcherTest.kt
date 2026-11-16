@@ -14,7 +14,12 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.zip.GZIPOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -246,5 +251,56 @@ class JvmHttpFetcherTest {
     @Test fun failureResultIsFetchErrNotException() {
         val r = runBlocking { JvmHttpFetcher().get("http://127.0.0.1:1/x") }
         assertTrue(r.toError() is FetchResult.Err)
+    }
+
+    @Test fun serverThatStallsOnHeadersIsCutOffByTheOverallDeadline() {
+        route("/stall") { Thread.sleep(4000); runCatching { it.reply(200, "late".toByteArray()) } }
+        val t0 = System.nanoTime()
+        val r = fetch("/stall", JvmHttpFetcher(overallTimeoutMs = 500))
+        val ms = (System.nanoTime() - t0) / 1_000_000
+        assertEquals(ErrorKind.Timeout, r.failure!!.kind)
+        assertTrue("took $ms ms", ms < 2_500)
+    }
+
+    @Test fun serverThatAcceptsButNeverAnswersIsCutOffEvenWithLongReadTimeouts() {
+        ServerSocket(0).use { ss ->
+            val t0 = System.nanoTime()
+            val r = runBlocking { JvmHttpFetcher(readTimeoutMs = 60_000, overallTimeoutMs = 500).get("http://127.0.0.1:${ss.localPort}/x") }
+            assertEquals(ErrorKind.Timeout, r.failure!!.kind)
+            assertTrue((System.nanoTime() - t0) / 1_000_000 < 2_500)
+        }
+    }
+
+    @Test fun connectThatCannotCompleteIsBoundedToo() {
+        // Backlog of 1 and never accept(): further connects queue or hang instead of completing.
+        ServerSocket(0, 1).use { ss ->
+            val fillers = (1..4).map { runCatching { java.net.Socket().also { s -> s.connect(java.net.InetSocketAddress("127.0.0.1", ss.localPort), 200) } }.getOrNull() }
+            try {
+                val t0 = System.nanoTime()
+                val r = runBlocking { JvmHttpFetcher(connectTimeoutMs = 60_000, readTimeoutMs = 60_000, overallTimeoutMs = 600).get("http://127.0.0.1:${ss.localPort}/x") }
+                assertTrue("must fail, not succeed: $r", r.failure != null)
+                assertTrue((System.nanoTime() - t0) / 1_000_000 < 3_000)
+            } finally {
+                fillers.forEach { it?.close() }
+            }
+        }
+    }
+
+    @Test fun cancellingTheCallerReleasesItPromptly() {
+        route("/hang") { Thread.sleep(5000); runCatching { it.reply(200, "late".toByteArray()) } }
+        val ms = runBlocking {
+            val job = launch(Dispatchers.Default) { JvmHttpFetcher().get(base + "/hang") }
+            delay(300)
+            val t0 = System.nanoTime()
+            withTimeout(1_500) { job.cancelAndJoin() }
+            (System.nanoTime() - t0) / 1_000_000
+        }
+        assertTrue("cancel took $ms ms", ms < 1_000)
+    }
+
+    @Test fun unknownHostIsFlaggedOffline() {
+        val r = runBlocking { JvmHttpFetcher().get("http://no-such-host.invalid/x") }
+        assertTrue(r.offline)
+        assertFalse(runBlocking { JvmHttpFetcher().get("http://127.0.0.1:${ServerSocket(0).use { it.localPort }}/x") }.offline)
     }
 }

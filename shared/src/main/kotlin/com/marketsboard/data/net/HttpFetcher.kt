@@ -15,6 +15,8 @@ data class HttpResponse(
     /** Parsed Retry-After in milliseconds (seconds or HTTP date), when the server sent one. */
     val retryAfterMs: Long? = null,
     val failure: FetchResult.Err? = null,
+    /** True when the failure says there is no route to the internet (unknown host, no route), so another host will not help. */
+    val offline: Boolean = false,
 ) {
     val isSuccess: Boolean get() = failure == null && code in 200..299
 

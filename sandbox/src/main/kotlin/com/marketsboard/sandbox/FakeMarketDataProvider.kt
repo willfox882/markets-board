@@ -88,6 +88,8 @@ class FakeMarketDataProvider(
             series = series,
             range = range,
             instrumentType = typeFor(sym),
+            source = id,
+            priceHint = if (sym.endsWith("=X")) 4 else 2,
         )
     }
 

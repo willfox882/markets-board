@@ -17,7 +17,8 @@ import java.time.ZoneId
  * - no currency, name, exchange, previous close or series: the caller's WatchItem fills currency/name/exchange
  *   (QuoteRepository does this) and the sparkline is simply absent;
  * - Stooq stamps quotes in Warsaw time (assumed, unverified); a missing date means the symbol has no data;
- * - search is not supported (returns an empty list).
+ * - 1D only (see [supports]); search is not supported (returns an empty list);
+ * - Stooq has no TSX coverage, so `.TO` symbols such as XEQT.TO have no fallback today (expected, the UI handles it).
  * Only parsed against recorded fixtures, never exercised against the live service from the build host.
  */
 class StooqProvider(
@@ -28,7 +29,11 @@ class StooqProvider(
 
     override fun supports(symbol: String): Boolean = YahooToStooq.map(symbol) != null
 
+    /** Only the 1D price snapshot: Stooq's quote CSV has no history, so other ranges have no fallback. */
+    override fun supports(symbol: String, range: ChartRange): Boolean = range == ChartRange.D1 && supports(symbol)
+
     override suspend fun quote(symbol: String, range: ChartRange): FetchResult<Quote> {
+        if (range != ChartRange.D1) return FetchResult.Err(ErrorKind.NotFound, "no fallback available for range ${range.label}")
         val mapped = YahooToStooq.map(symbol)
             ?: return FetchResult.Err(ErrorKind.NotFound, "no fallback available for $symbol")
         val url = "$baseUrl/q/l/?s=${URLEncoder.encode(mapped, "UTF-8")}&f=sd2t2ohlcv&h&e=csv"
@@ -68,15 +73,23 @@ internal object StooqParser {
     private val ZONE: ZoneId = ZoneId.of("Europe/Warsaw")
     private const val UNKNOWN = "N/D"
 
+    /** Stooq answers 200 with this plain text once the free daily quota is used up. */
+    private const val DAILY_LIMIT_MARKER = "exceeded the daily hits limit"
+    private const val DAILY_LIMIT_COOLDOWN_MS = 3_600_000L
+
+    /** Columns are located by header name, so a missing trailing field (7 values for 8 headers) is fine. */
     fun parse(csv: String, requestedSymbol: String, range: ChartRange): FetchResult<Quote> {
+        if (csv.contains(DAILY_LIMIT_MARKER, ignoreCase = true)) {
+            return FetchResult.Err(ErrorKind.RateLimited(DAILY_LIMIT_COOLDOWN_MS), "stooq daily hits limit exceeded")
+        }
         val lines = csv.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (lines.size < 2) return FetchResult.Err(ErrorKind.Parse, "csv has no data row")
         val header = lines[0].split(',').map { it.trim().lowercase() }
         val row = lines[1].split(',').map { it.trim() }
-        if (header.size < 8 || row.size != header.size || header[0] != "symbol") {
+        if ("symbol" !in header || "date" !in header || "close" !in header || row.size > header.size || row.size < header.size - 1) {
             return FetchResult.Err(ErrorKind.Parse, "unexpected csv columns")
         }
-        fun col(name: String): String? = header.indexOf(name).takeIf { it >= 0 }?.let { row[it] }?.takeIf { it != UNKNOWN && it.isNotEmpty() }
+        fun col(name: String): String? = header.indexOf(name).takeIf { it >= 0 && it < row.size }?.let { row[it] }?.takeIf { it != UNKNOWN && it.isNotEmpty() }
         val close = col("close")?.toDoubleOrNull()
         val date = col("date")
         if (close == null || date == null) return FetchResult.Err(ErrorKind.NotFound, "no data (N/D)")
@@ -104,6 +117,7 @@ internal object StooqParser {
             asOfEpochMs = asOf,
             series = emptyList(),
             range = range,
+            source = "stooq",
         )
         return QuoteValidator.validate(raw)
     }

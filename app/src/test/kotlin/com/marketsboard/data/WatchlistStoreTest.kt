@@ -285,7 +285,7 @@ class WatchlistStoreTest {
         val s = store(f)
         assertEquals(LoadStatus.NewerVersionReadOnly, s.loadStatus)
         assertTrue(s.readOnly)
-        assertEquals(listOf("XEQT.TO", "MSFT"), s.syms())
+        assertEquals(listOf("AAPL"), s.syms()) // the readable items of the newer file are shown, read-only
         assertEquals(EditResult.ReadOnly, s.add(item("NVDA")))
         assertEquals(EditResult.ReadOnly, s.remove("MSFT"))
         assertEquals(EditResult.ReadOnly, s.move(0, 1))

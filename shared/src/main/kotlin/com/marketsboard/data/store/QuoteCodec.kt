@@ -36,6 +36,11 @@ object QuoteCodec {
         put("asOf", q.asOfEpochMs)
         put("range", q.range.name)
         put("type", q.instrumentType?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("source", q.source)
+        put("sessionStart", q.sessionStartMs?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("sessionEnd", q.sessionEndMs?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("tz", q.exchangeTimezoneName?.let { JsonPrimitive(it) } ?: JsonNull)
+        put("priceHint", q.priceHint?.let { JsonPrimitive(it) } ?: JsonNull)
         put("series", JsonArray(q.series.map { JsonArray(listOf(JsonPrimitive(it.tMs), JsonPrimitive(it.close))) }))
     }.toString()
 
@@ -63,6 +68,11 @@ object QuoteCodec {
             series = series,
             range = range,
             instrumentType = o.str("type"),
+            source = o.str("source").orEmpty(),
+            sessionStartMs = o.long("sessionStart"),
+            sessionEndMs = o.long("sessionEnd"),
+            exchangeTimezoneName = o.str("tz"),
+            priceHint = o.num("priceHint")?.toInt(),
         )
         return (QuoteValidator.validate(raw) as? FetchResult.Ok)?.value
     }

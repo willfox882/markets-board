@@ -2,6 +2,7 @@ package com.marketsboard.data.provider
 
 import com.marketsboard.data.Clock
 import com.marketsboard.data.model.ChartRange
+import com.marketsboard.data.model.Currencies
 import com.marketsboard.data.model.ErrorKind
 import com.marketsboard.data.model.FetchResult
 import com.marketsboard.data.model.Instrument
@@ -51,19 +52,25 @@ class YahooChartProvider(
         for (base in baseUrls) {
             val r = http.get(base + path, mapOf("Accept" to "application/json"))
             last = r
-            val retryOtherHost = r.failure?.kind.let { it == ErrorKind.Network || it == ErrorKind.Timeout } || r.code in 500..599
+            // Another host helps when this one is sick, not when the whole device is offline (DNS or no route).
+            val retryOtherHost = !r.offline && (r.failure?.kind.let { it == ErrorKind.Network || it == ErrorKind.Timeout } || r.code in 500..599)
             if (!retryOtherHost) return r
         }
         return last ?: HttpResponse(0, failure = FetchResult.Err(ErrorKind.Unknown, "no hosts configured"))
     }
 
-    /** Non-2xx: Yahoo sends a JSON error body for unknown symbols (HTTP 404), so prefer that over the bare status. */
+    /**
+     * Non-2xx. Yahoo sends a JSON error body for unknown symbols (HTTP 404), so a NotFound or RateLimited body wins
+     * over the bare status. Server errors (5xx) always stay Http(5xx), even with a JSON body, so they trigger backoff.
+     */
     private fun errorFor(resp: HttpResponse): FetchResult.Err {
-        if (resp.failure == null && resp.code != 429) {
-            val parsed = YahooParser.chartErrorFromBody(resp.body)
-            if (parsed != null) return parsed
+        val status = resp.toError() ?: return FetchResult.Err(ErrorKind.Unknown, "unexpected state")
+        if (resp.failure != null || resp.code == 429 || resp.code >= 500) {
+            val detail = if (resp.code >= 500) YahooParser.chartErrorFromBody(resp.body)?.message.orEmpty() else ""
+            return if (detail.isEmpty()) status else status.copy(message = "${status.message}: $detail")
         }
-        return resp.toError() ?: FetchResult.Err(ErrorKind.Unknown, "unexpected state")
+        val parsed = YahooParser.chartErrorFromBody(resp.body) ?: return status
+        return if (parsed.kind == ErrorKind.Unknown) status.copy(message = "${status.message}: ${parsed.message}") else parsed
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
@@ -124,30 +131,47 @@ internal object YahooParser {
         val raw = Quote(
             symbol = (meta.str("symbol") ?: requestedSymbol).uppercase(),
             name = meta.str("longName") ?: meta.str("shortName") ?: requestedSymbol,
-            currency = meta.str("currency")?.uppercase().orEmpty(),
+            currency = Currencies.normalize(meta.str("currency")),
             exchange = meta.str("fullExchangeName") ?: meta.str("exchangeName").orEmpty(),
             price = price,
             prevClose = prevClose,
             dayHigh = meta.num("regularMarketDayHigh"),
             dayLow = meta.num("regularMarketDayLow"),
-            marketState = meta.str("marketState") ?: deriveMarketState(meta, nowMs),
+            marketState = meta.str("marketState") ?: deriveMarketState(meta, nowMs, asOfSec * 1000L),
             asOfEpochMs = asOfSec * 1000L,
             series = cleanSeries,
             range = range,
             instrumentType = meta.str("instrumentType"),
+            source = "yahoo",
+            sessionStartMs = meta.obj("currentTradingPeriod")?.obj("regular")?.long("start")?.times(1000L),
+            sessionEndMs = meta.obj("currentTradingPeriod")?.obj("regular")?.long("end")?.times(1000L),
+            exchangeTimezoneName = meta.str("exchangeTimezoneName"),
+            priceHint = meta.num("priceHint")?.takeIf { it.isFinite() }?.toInt(),
         )
         return QuoteValidator.validate(raw)
     }
 
     private fun Double?.valid(): Double? = this?.takeIf { QuoteValidator.validPrice(it) }
 
-    /** Best effort: REGULAR inside today's regular trading window, else CLOSED. Uses the device clock, hint only. */
-    private fun deriveMarketState(meta: JsonObject, nowMs: Long): String? {
+    /**
+     * Best effort, only when Yahoo omits `marketState`. REGULAR needs ALL of: the device clock inside today's regular
+     * trading window, AND the last trade (`regularMarketTime`) no more than 20 minutes old. Otherwise CLOSED. If the
+     * device clock is behind the provider's last trade (wrong clock) the answer is unknown (null), never REGULAR.
+     * Holidays are only detected heuristically (a stale last trade inside the window reads as CLOSED), and a
+     * thinly traded symbol with no trade for 20 minutes also reads as CLOSED.
+     */
+    private fun deriveMarketState(meta: JsonObject, nowMs: Long, lastTradeMs: Long): String? {
         val reg = meta.obj("currentTradingPeriod")?.obj("regular") ?: return null
         val start = reg.long("start") ?: return null
         val end = reg.long("end") ?: return null
-        return if (nowMs >= start * 1000 && nowMs < end * 1000) "REGULAR" else "CLOSED"
+        val sinceTrade = nowMs - lastTradeMs
+        if (sinceTrade < -SKEW_TOLERANCE_MS) return null
+        val inWindow = nowMs >= start * 1000 && nowMs < end * 1000
+        return if (inWindow && sinceTrade <= FRESH_TRADE_MS) "REGULAR" else "CLOSED"
     }
+
+    private const val SKEW_TOLERANCE_MS = 120_000L
+    private const val FRESH_TRADE_MS = 20 * 60_000L
 
     fun parseSearch(body: String): FetchResult<List<Instrument>> {
         val root = Js.parse(body).asObj() ?: return FetchResult.Err(ErrorKind.Parse, "not a JSON object")
