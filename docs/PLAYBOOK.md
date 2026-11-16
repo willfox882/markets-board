@@ -8,8 +8,16 @@ Everything an agent needs to know about environment, architecture, design and pr
 Glanceable market dashboard + news, internet via the owner's iPhone hotspot (Wi-Fi) or the unit's own LTE.
 Owner reads it **while parked**; while driving it must degrade to a minimal glance view (and later audio briefing).
 It is its own app so a network failure can never touch the Truck Dash speedometer.
-Owner is Canadian: prefer TSX, CAD, USD/CAD, WTI/Brent (trucking), gold, BTC/ETH, plus US indices. Metric units everywhere
-(km/h, km, litres, kPa, degC). Currency shown with symbol and code where ambiguous.
+Owner is Canadian: metric units everywhere (km/h, km, litres, kPa, degC).
+
+**Owner's watchlist requirement (explicit, high priority):** the owner only wants two instruments by default and wants to change them freely later:
+- `XEQT.TO` (iShares Core Equity ETF Portfolio, TSX), shown in **CAD** (C$).
+- `MSFT` (Microsoft, NASDAQ), shown in **USD** (US$).
+Each instrument is shown in its own native currency, no forced conversion (an optional "show in CAD" toggle per item is a nice-to-have, not required).
+The watchlist must be fully editable in the app: **add** a symbol (validated by fetching a quote, name and currency auto-detected from the provider), **remove**, **reorder**, rename (display name override). Persist it (JSON file), ship these two as defaults, and never lose a user edit on upgrade.
+Provide quick-add suggestions in the editor (not on by default): `^GSPTSE` TSX Composite, `^GSPC` S&P 500, `^IXIC` Nasdaq, `USDCAD=X` USD/CAD, `CL=F` WTI, `GC=F` gold, `BTC-CAD`, `ETH-CAD`, `VFV.TO`, `XIU.TO`, `SHOP.TO`, `RY.TO`, `TD.TO`, `ENB.TO`, `AAPL`, `NVDA`.
+The Markets screen is therefore watchlist-first and uncluttered: big clean rows for the user's symbols (name, symbol, exchange, price in native currency, day change and %, sparkline), not a wall of indices. Any extra section (indices strip etc.) is opt-in via the same list.
+Symbols use Yahoo format (`XEQT.TO`, `MSFT`, `^GSPTSE`, `USDCAD=X`, `BTC-CAD`); keep a small mapping to Stooq symbols for the fallback and handle "no fallback available" gracefully.
 
 ## 2. Environment facts (cloud container)
 - Android SDK: `export ANDROID_HOME=/home/user/android-sdk` (platform 35, build-tools 35.0.0 installed). JDK 21. System Gradle 8.14.3.
@@ -71,8 +79,8 @@ Premium, Apple / Wealthsimple feel. **Copy, do not reinvent**: from `/home/user/
 
 ## 7. Milestone plan
 - **M0** scaffold, design system port, tabbed shell, sandbox + screenshots, docs, CI, push.
-- **M1** data layer: models, `MarketDataProvider` (Yahoo chart endpoint primary, Stooq CSV fallback), HTTP client, file cache with TTL + stale-while-revalidate, fixtures, parsing tests.
-- **M2** Markets UI: indices hero, watchlist rows with sparklines, FX/commodities/crypto, instrument detail with ranges, refresh policy (market-hours aware), stale/offline states, fake provider + controls in sandbox.
+- **M1** data layer: models (Instrument with symbol, name, currency, exchange), `MarketDataProvider` (Yahoo chart endpoint primary, Stooq CSV fallback), HTTP client, file cache with TTL + stale-while-revalidate, **`WatchlistStore` (JSON persistence, defaults XEQT.TO + MSFT, add/remove/reorder/rename, validation, versioned format)**, fixtures, parsing and store tests.
+- **M2** Markets UI (watchlist-first): premium rows with sparklines and native-currency prices, **watchlist editor (add by symbol with live validation, remove, drag or arrow reorder, rename, suggestions)**, instrument detail with ranges, refresh policy (market-hours aware), stale/offline states, fake provider + controls in sandbox.
 - **M3** News: RSS provider + parser, headlines list/detail, dedupe, time-ago, cache, briefing text builder.
 - **M4** Drive safety: GPS speed gate, glance mode, passenger mode, TTS briefing (Android) behind an interface.
-- **M5** Settings and polish: watchlist editor, feed editor, provider/diagnostics screen, connectivity handling (hotspot drops), icon, install docs, release artifacts, whole-repo audit.
+- **M5** Settings and polish: feed editor, provider/diagnostics screen, connectivity handling (hotspot drops), icon, install docs, release artifacts, whole-repo audit.
