@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.LocalBackHook
-import com.marketsboard.ui.LocalOpenUrl
 import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 import com.marketsboard.ui.MbTab
@@ -167,7 +166,7 @@ class NewsRenderTest {
         assertEquals(NewsPhase.Ready, F.newsStale().phase)
         assertTrue(F.newsStale().stale)
         assertTrue(F.newsDetail().detail != null)
-        assertEquals(3, F.newsGlance().rows.size)
+        assertEquals(1, F.newsGlance().rows.size)
         assertTrue(F.news().rows.size > 10)
         assertTrue("My symbols keeps only tagged rows", F.newsMySymbols().rows.isNotEmpty() && F.newsMySymbols().rows.all { it.tags.isNotEmpty() })
         assertTrue(F.newsMySymbols().rows.size < F.news().rows.size)
@@ -249,6 +248,7 @@ class NewsRenderTest {
     private class Rec : NewsActions {
         val calls = mutableListOf<String>()
         override fun onOpen(id: String) { calls += "open" }
+        override fun onOpenLink(id: String) { calls += "link:$id" }
         override fun onRefresh() { calls += "refresh" }
         override fun onRetry() { calls += "retry" }
         override fun onSetFilter(filter: NewsFilter) { calls += "filter:$filter" }
@@ -258,7 +258,7 @@ class NewsRenderTest {
 
     private fun tapGrid(state: NewsUiState, rec: Rec, opened: MutableList<String> = mutableListOf(), height: Int = 900, openResult: Boolean = true) {
         val scene = ImageComposeScene(width = 440, height = height, density = Density(1f)) {
-            MarketsBoardTheme { CompositionLocalProvider(LocalOpenUrl provides { opened += it; openResult }) { NewsScreen(state, actions = rec) } }
+            MarketsBoardTheme { NewsScreen(state, actions = rec) }
         }
         try {
             for (i in 0 until 3) scene.render(i * 100_000_000L)
@@ -290,41 +290,23 @@ class NewsRenderTest {
         assertEquals(emptyList<String>(), rec.calls)
     }
 
-    @Test fun theArticleOpensTheLinkAndNeverTheListBehindIt() {
+    @Test fun theArticleAsksThePresenterToOpenTheLinkAndNeverTouchesTheListBehindIt() {
         val rec = Rec()
-        val opened = mutableListOf<String>()
-        tapGrid(F.newsDetail(), rec, opened, height = 1000)
+        tapGrid(F.newsDetail(), rec, height = 1000)
         assertTrue("nothing from the list leaks through: ${rec.calls}", rec.calls.none { it == "open" || it.startsWith("filter") || it == "refresh" })
         assertTrue("back chevron closes: ${rec.calls}", rec.calls.contains("close"))
+        assertTrue("Open article goes through the presenter action: ${rec.calls}", rec.calls.contains("link:" + F.newsDetail().detail!!.id))
         val url = F.newsDetail().detail!!.url
-        assertTrue("Open article hands the link to the platform: $opened", opened.isNotEmpty() && opened.all { it == url })
         assertTrue(url.startsWith("https://") || url.startsWith("http://"))
     }
 
     @Test fun aFailedOpenShowsNoBrowserInAmber() {
-        fun amber(open: Boolean): Int {
-            val scene = ImageComposeScene(width = 440, height = 1000, density = Density(1f)) {
-                MarketsBoardTheme { CompositionLocalProvider(LocalOpenUrl provides { open }) { NewsScreen(F.newsDetail()) } }
-            }
-            try {
-                for (i in 0 until 3) scene.render(i * 100_000_000L)
-                var t = 1_000L
-                for (y in 200 until 1000 step 20) for (x in 20 until 420 step 30) {
-                    val pos = Offset(x.toFloat(), y.toFloat())
-                    scene.sendPointerEvent(PointerEventType.Press, pos, timeMillis = t)
-                    scene.render(t * 1_000_000L)
-                    scene.sendPointerEvent(PointerEventType.Release, pos, timeMillis = t + 30)
-                    scene.render((t + 30) * 1_000_000L)
-                    t += 400
-                }
-                scene.render((t + 1000) * 1_000_000L)
-                return scene.render((t + 1100) * 1_000_000L).toComposeImageBitmap().toPixelMap().buffer.count { chroma(it) > 20 && hueDistance(hue(it), hueOf(Dash.amber)) < 25 }
-            } finally {
-                scene.close()
-            }
+        fun amber(failed: Boolean): Int {
+            val p = pixels(440, 1000) { NewsScreen(F.newsDetail().copy(linkFailed = failed)) }
+            return p.count { chroma(it) > 20 && hueDistance(hue(it), hueOf(Dash.amber)) < 25 }
         }
-        assertEquals("a working browser shows no amber", 0, amber(true))
-        assertTrue("no browser says so", amber(false) > 40)
+        assertEquals("a working browser shows no amber", 0, amber(false))
+        assertTrue("no browser says so", amber(true) > 40)
     }
 
     @Test fun errorAndBannerRetryActions() {

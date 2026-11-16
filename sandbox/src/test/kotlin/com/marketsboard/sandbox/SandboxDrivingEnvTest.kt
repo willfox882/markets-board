@@ -33,7 +33,11 @@ class SandboxDrivingEnvTest {
         runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val clock = ManualClock()
-            try { block(SandboxEnv(scope, gateClock = clock, autoFeed = false), clock) } finally { scope.cancel() }
+            try {
+                val e = SandboxEnv(scope, gateClock = clock, autoFeed = false)
+                e.driveAt(0.0) // the first stopped fix ends the gate's Checking phase
+                block(e, clock)
+            } finally { scope.cancel() }
         }
     }
 
@@ -75,7 +79,7 @@ class SandboxDrivingEnvTest {
         delay(200)
         assertEquals(UiMode.Glance, e.driving.mode.value)
         assertTrue(!e.settingsStore.settings.value.passengerMode)
-        repeat(11) { clock.mono += 1_000; e.driveAt(0.0) }
+        repeat(14) { clock.mono += 1_000; e.driveAt(0.0) }
         e.settingsPresenter.onPassengerMode(true)
         until { e.driving.status.value.takeIf { it.reason == DrivingReason.Passenger } }
         e.driveAt(90.0)
@@ -112,5 +116,57 @@ class SandboxDrivingEnvTest {
         e.briefing.onBrief()
         val s = until { e.briefing.state.value.takeIf { it.phase == BriefingPhase.Text } }
         assertTrue(s.message.startsWith("Speech stopped unexpectedly"))
+    }
+}
+
+/** The new safety paths end to end in the sandbox environment. */
+class SandboxParkadeEnvTest {
+    private class ManualClock : Clock {
+        @Volatile var mono = 1_000_000L
+        override fun nowMs() = 1_700_000_000_000L + mono
+        override fun monoMs() = mono
+    }
+
+    private fun env(block: suspend (SandboxEnv, ManualClock) -> Any?) {
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val clock = ManualClock()
+            try { block(SandboxEnv(scope, gateClock = clock, autoFeed = false), clock) } finally { scope.cancel() }
+        }
+    }
+
+    @Test fun startsInCheckingGlanceAndTheFirstStoppedFixOpensTheUi() = env { e, _ ->
+        assertEquals(UiMode.Glance, e.driving.mode.value)
+        assertEquals(DrivingReason.Checking, e.driving.status.value.reason)
+        e.presenter.onToggleEdit()
+        delay(100)
+        assertTrue("nothing is interactive while checking", !e.presenter.state.value.editMode)
+        e.driveAt(0.0)
+        assertEquals(UiMode.Normal, e.driving.mode.value)
+    }
+
+    @Test fun parkadeLockoutOffersTheHoldAndTheNextMovingFixLocksAgain() = env { e, clock ->
+        e.driveAt(0.0)
+        e.driveAt(50.0)
+        e.gpsLost.value = true
+        e.feed()
+        clock.mono += 61_000; e.feed()
+        assertTrue(e.driving.status.value.parkedPrompt)
+        e.drivingActions.onConfirmParked()
+        assertEquals(UiMode.Normal, e.driving.mode.value)
+        e.gpsLost.value = false
+        e.driveAt(40.0)
+        assertEquals(UiMode.Glance, e.driving.mode.value)
+    }
+
+    @Test fun passengerModeSwitchesItselfOffAfterTenMinutesParkedAndTheSettingFollows() = env { e, clock ->
+        e.driveAt(0.0)
+        e.settingsPresenter.onPassengerMode(true)
+        delay(300)
+        assertTrue(e.settingsStore.settings.value.passengerMode)
+        repeat(601) { clock.mono += 1_000; e.driveAt(0.0) }
+        delay(300)
+        assertTrue("the switch followed the gate", !e.settingsStore.settings.value.passengerMode)
+        assertEquals(DrivingReason.Parked, e.driving.status.value.reason)
     }
 }

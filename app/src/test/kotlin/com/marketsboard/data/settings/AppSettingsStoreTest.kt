@@ -12,11 +12,35 @@ import org.junit.Test
 class AppSettingsStoreTest {
     private fun store(dir: File = tempDir()) = AppSettingsStore(File(dir, "settings.json"), FakeClock()) to dir
 
-    @Test fun freshStartHasDefaultsAndWritesTheFile() {
+    @Test fun constructingTheStoreWritesNothingTheFirstFlushCreatesTheFile() {
+        // the constructor runs on the main thread: it must not touch the disk for writing
         val (s, dir) = store()
+        assertFalse("no file created by the constructor", File(dir, "settings.json").exists())
+        assertTrue(s.flush())
+        assertTrue(File(dir, "settings.json").isFile)
+    }
+
+    @Test fun passengerModeIsSessionOnlyAndNeverReachesTheDisk() {
+        val (s, dir) = store()
+        s.update { it.copy(passengerMode = true, includeNews = false) }
+        assertTrue(s.settings.value.passengerMode)
+        assertTrue(s.flush())
+        assertFalse(File(dir, "settings.json").readText().contains("passenger"))
+        assertFalse("a cold start is always off", AppSettingsStore(File(dir, "settings.json"), FakeClock()).settings.value.passengerMode)
+        File(dir, "settings.json").writeText("""{"version":1,"passengerMode":true}""")
+        assertFalse("an old file or a hand edit cannot switch it on", AppSettingsStore(File(dir, "settings.json"), FakeClock()).settings.value.passengerMode)
+        // changing only the passenger flag needs no write
+        val (t, d2) = store()
+        t.flush(); File(d2, "settings.json").delete()
+        t.update { it.copy(passengerMode = true) }
+        assertTrue(t.flush())
+        assertFalse(File(d2, "settings.json").exists())
+    }
+
+    @Test fun freshStartHasDefaults() {
+        val (s, _) = store()
         assertEquals(AppSettings(), s.settings.value)
         assertEquals(LoadStatus.Fresh, s.loadStatus)
-        assertTrue(File(dir, "settings.json").isFile)
         assertEquals(1.0f, s.settings.value.speechRate, 0f)
         assertTrue(s.settings.value.voiceEnabled && s.settings.value.includeNews)
         assertFalse(s.settings.value.passengerMode || s.settings.value.mediaKeyTrigger)
@@ -24,19 +48,19 @@ class AppSettingsStoreTest {
 
     @Test fun changesSurviveARestart() {
         val (s, dir) = store()
-        s.update { it.copy(passengerMode = true, speechRate = 0.85f, includeNews = false, mediaKeyTrigger = true, voiceEnabled = false) }
+        s.update { it.copy(speechRate = 0.85f, includeNews = false, mediaKeyTrigger = true, voiceEnabled = false) }
         assertTrue(s.flush())
         val again = AppSettingsStore(File(dir, "settings.json"), FakeClock())
-        assertEquals(AppSettings(passengerMode = true, voiceEnabled = false, speechRate = 0.85f, includeNews = false, mediaKeyTrigger = true), again.settings.value)
+        assertEquals(AppSettings(voiceEnabled = false, speechRate = 0.85f, includeNews = false, mediaKeyTrigger = true), again.settings.value)
         assertEquals(LoadStatus.Loaded, again.loadStatus)
     }
 
     @Test fun updateIsImmediateInMemoryAndWrittenOnFlush() {
         val (s, dir) = store()
-        s.update { it.copy(passengerMode = true) }
-        assertTrue(s.settings.value.passengerMode)
+        s.update { it.copy(voiceEnabled = false) }
+        assertFalse(s.settings.value.voiceEnabled)
         s.flush()
-        assertTrue(File(dir, "settings.json").readText().contains("\"passengerMode\": true"))
+        assertTrue(File(dir, "settings.json").readText().contains("\"voiceEnabled\": false"))
     }
 
     @Test fun speechRateIsClampedAndSnapped() {
@@ -52,20 +76,19 @@ class AppSettingsStoreTest {
 
     @Test fun aHandEditedFileWithWildValuesIsSanitised() {
         val dir = tempDir()
-        File(dir, "settings.json").writeText("""{"version":1,"passengerMode":"yes","speechRate":99,"voiceEnabled":false,"includeNews":7}""")
+        File(dir, "settings.json").writeText("""{"version":1,"mediaKeyTrigger":"yes","speechRate":99,"voiceEnabled":false,"includeNews":7}""")
         val s = AppSettingsStore(File(dir, "settings.json"), FakeClock())
         assertEquals(1.2f, s.settings.value.speechRate, 0f)
         assertFalse(s.settings.value.voiceEnabled)
-        assertFalse("a string is not a boolean: default", s.settings.value.passengerMode)
+        assertFalse("a string is not a boolean: default", s.settings.value.mediaKeyTrigger)
         assertTrue("a number is not a boolean: default", s.settings.value.includeNews)
     }
 
     @Test fun missingFieldsTakeDefaults() {
         val dir = tempDir()
-        File(dir, "settings.json").writeText("""{"version":1,"passengerMode":true}""")
+        File(dir, "settings.json").writeText("""{"version":1,"voiceEnabled":false}""")
         val s = AppSettingsStore(File(dir, "settings.json"), FakeClock())
-        assertTrue(s.settings.value.passengerMode)
-        assertEquals(AppSettings().copy(passengerMode = true), s.settings.value)
+        assertEquals(AppSettings().copy(voiceEnabled = false), s.settings.value)
     }
 
     @Test fun garbageIsQuarantinedAndDefaultsReturn() {
@@ -75,29 +98,30 @@ class AppSettingsStoreTest {
         assertEquals(AppSettings(), s.settings.value)
         assertEquals(LoadStatus.RecoveredFromCorrupt, s.loadStatus)
         assertTrue(dir.listFiles()!!.any { it.name.startsWith("settings.corrupt-") })
-        assertTrue("a new valid file was written", File(dir, "settings.json").readText().contains("\"version\""))
+        assertTrue(s.flush())
+        assertTrue("a new valid file was written by the first flush", File(dir, "settings.json").readText().contains("\"version\""))
     }
 
     @Test fun aTruncatedFileRecoversFromTheBackup() {
         val (s, dir) = store()
-        s.update { it.copy(passengerMode = true) }; s.flush()
+        s.update { it.copy(voiceEnabled = false) }; s.flush()
         s.update { it.copy(includeNews = false) }; s.flush() // the first good copy is now the backup
         File(dir, "settings.json").writeText("") // power cut: zero length
         val again = AppSettingsStore(File(dir, "settings.json"), FakeClock())
         assertEquals(LoadStatus.RecoveredFromBackup, again.loadStatus)
-        assertTrue(again.settings.value.passengerMode)
+        assertFalse(again.settings.value.voiceEnabled)
     }
 
     @Test fun aNewerVersionIsUsedButNeverOverwritten() {
         val dir = tempDir()
         val f = File(dir, "settings.json")
-        f.writeText("""{"version":9,"passengerMode":true,"future":"x"}""")
+        f.writeText("""{"version":9,"voiceEnabled":false,"future":"x"}""")
         val s = AppSettingsStore(f, FakeClock())
         assertTrue(s.readOnly)
-        assertTrue(s.settings.value.passengerMode)
-        s.update { it.copy(passengerMode = false) }
+        assertFalse(s.settings.value.voiceEnabled)
+        s.update { it.copy(voiceEnabled = true) }
         assertTrue(s.flush())
-        assertEquals("""{"version":9,"passengerMode":true,"future":"x"}""", f.readText())
+        assertEquals("""{"version":9,"voiceEnabled":false,"future":"x"}""", f.readText())
     }
 
     @Test fun aFailedWriteKeepsTheValueAndRetries() {
@@ -105,13 +129,13 @@ class AppSettingsStoreTest {
         val (s, _) = store(dir)
         File(dir, "settings.json").delete()
         File(dir, "settings.json").mkdir() // the target is now a directory: the rename cannot succeed
-        s.update { it.copy(passengerMode = true) }
+        s.update { it.copy(voiceEnabled = false) }
         assertFalse(s.flush())
-        assertTrue(s.settings.value.passengerMode)
+        assertFalse(s.settings.value.voiceEnabled)
         assertTrue(s.persistError.value != null)
         File(dir, "settings.json").deleteRecursively()
         assertTrue(s.flush())
-        assertTrue(File(dir, "settings.json").readText().contains("true"))
+        assertTrue(File(dir, "settings.json").readText().contains("false"))
     }
 }
 

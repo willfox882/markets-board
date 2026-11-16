@@ -131,13 +131,14 @@ fun GlanceRow(q: QuoteRowUi, modifier: Modifier = Modifier, compact: Boolean = f
     val priceText = q.price?.let { formatPrice(it, q.decimals) }
     Row(modifier.fillMaxWidth().padding(vertical = if (compact) 2.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            q.name, color = Dash.text, fontSize = if (compact) 18.sp else 22.sp, lineHeight = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.Medium,
+            q.name, color = Dash.text, fontSize = if (compact) 20.sp else 22.sp, lineHeight = if (compact) 25.sp else 27.sp, fontWeight = FontWeight.Medium,
             maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 12.dp),
         )
         Column(horizontalAlignment = Alignment.End) {
             if (priceText != null) {
                 Numeral(priceText, q.currency, size = priceFontSizeSp(priceText).plus(if (compact) -2 else 6).sp, color = if (dim) Dash.dim else Dash.text)
-                ChangeLine(q.change, q.changePct, q.prevClose != null, q.decimals, color, Modifier.padding(top = if (compact) 0.dp else 4.dp), size = if (compact) 14 else 17)
+                // Percent only while driving: one number is enough at a glance.
+                ChangeLine(q.change, q.changePct, q.prevClose != null, q.decimals, color, Modifier.padding(top = if (compact) 0.dp else 4.dp), size = if (compact) 15 else 18, percentOnly = true)
             } else if (q.status is RowStatus.Loading) {
                 Skeleton(110.dp, 30.dp)
             } else {
@@ -149,12 +150,12 @@ fun GlanceRow(q: QuoteRowUi, modifier: Modifier = Modifier, compact: Boolean = f
 
 /** "+0.17  +0.42%" in the change colour, or a dim "--" when there is no previous close to compare with. */
 @Composable
-fun ChangeLine(change: Double, pct: Double, hasPrev: Boolean, decimals: Int, color: Color, modifier: Modifier = Modifier, size: Int = 14) {
+fun ChangeLine(change: Double, pct: Double, hasPrev: Boolean, decimals: Int, color: Color, modifier: Modifier = Modifier, size: Int = 14, percentOnly: Boolean = false) {
     if (!hasPrev || !pct.isFinite()) {
         Text(NO_VALUE, color = Dash.dim, fontSize = size.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, style = Tabular, modifier = modifier)
     } else {
         Text(
-            "${formatSigned(change, decimals)}  ${formatPercent(pct)}", color = color, fontSize = size.sp,
+            if (percentOnly) formatPercent(pct) else "${formatSigned(change, decimals)}  ${formatPercent(pct)}", color = color, fontSize = size.sp,
             fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, style = Tabular, modifier = modifier,
         )
     }

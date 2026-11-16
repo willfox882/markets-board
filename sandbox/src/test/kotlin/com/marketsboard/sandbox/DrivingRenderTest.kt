@@ -71,6 +71,9 @@ class DrivingRenderTest {
         Case("glance markets speaking", MbTab.Markets, F.glance(), NewsUiState(), moving, speaking, settings(moving)),
         Case("glance markets preparing", MbTab.Markets, F.glance(), NewsUiState(), moving, preparing, settings(moving)),
         Case("glance markets note", MbTab.Markets, F.glance(), NewsUiState(), moving, text, settings(moving)),
+        Case("glance parked prompt", MbTab.Markets, F.glance(), NewsUiState(), DrivingStatus(UiMode.Glance, DrivingReason.NoSignalWhileMoving, parkedPrompt = true), BriefingUiState(), settings(moving)),
+        Case("glance checking", MbTab.Markets, F.glance(), NewsUiState(), DrivingStatus(UiMode.Glance, DrivingReason.Checking), BriefingUiState(), settings(moving)),
+        Case("markets gps unknown", MbTab.Markets, F.normal(), NewsUiState(), DrivingStatus(UiMode.Normal, DrivingReason.NoFixYet), BriefingUiState(), settings(parked)),
         Case("glance news", MbTab.News, F.glance(), F.newsGlance(), moving, BriefingUiState(), settings(moving)),
         Case("glance news speaking", MbTab.News, F.glance(), F.newsGlance(), moving, speaking, settings(moving)),
         Case("settings parked", MbTab.Settings, F.normal(), NewsUiState(), parked, BriefingUiState(), settings(parked)),
@@ -173,6 +176,9 @@ class DrivingRenderTest {
             override fun onVoice(on: Boolean) { calls += "voice" }
             override fun onGrantLocation() { calls += "grant" }
         }
+        val driving = object : com.marketsboard.ui.DrivingActions {
+            override fun onConfirmParked() { calls += "confirmParked" }
+        }
         val briefing = object : BriefingActions {
             override fun onBrief() { calls += "brief" }
             override fun onStop() { calls += "stop" }
@@ -184,7 +190,7 @@ class DrivingRenderTest {
             MarketsBoardTheme {
                 MarketsBoardRoot(
                     c.markets, c.news, c.tab, rec.markets, mode = c.driving.mode, newsActions = rec.news, driving = c.driving, briefing = c.briefing,
-                    briefingActions = rec.briefing, settings = c.settings, settingsActions = rec.settings,
+                    briefingActions = rec.briefing, settings = c.settings, settingsActions = rec.settings, drivingActions = rec.driving,
                 )
             }
         }
@@ -251,5 +257,15 @@ class DrivingRenderTest {
         val c = Case("n", MbTab.Markets, F.normal(), NewsUiState(), parked, BriefingUiState(), settings(parked))
         tapAll(c, rec, xs = 340 until 430 step 20, ys = 5 until 40 step 8)
         assertTrue("strip: ${rec.calls}", "brief" in rec.calls)
+    }
+
+    @Test fun aTapOnTheParkedHoldDoesNothingAndTheAmberLineShowsOnlyWhenUnknown() {
+        val rec = Rec()
+        tapAll(cases().first { it.name == "glance parked prompt" }, rec, ys = 20 until 836 step 20)
+        assertTrue("only a 3 second hold confirms: ${rec.calls}", "confirmParked" !in rec.calls)
+        val amber = hueOf(Dash.amber)
+        fun amberPx(name: String) = pixels(810, 1440, root(cases().first { it.name == name })).count { chroma(it) > 20 && hueDistance(hue(it), amber) < 25 }
+        assertTrue("the Markets header says GPS unknown", amberPx("markets gps unknown") > 150)
+        assertEquals("a parked unit with a fix has no warning", 0, amberPx("normal speaking") + amberPx("passenger label"))
     }
 }

@@ -111,7 +111,7 @@ class SandboxEnv(
     val location = SandboxLocation()
     val speedKmh = MutableStateFlow(0.0)
     val gpsLost = MutableStateFlow(false)
-    val driving = DrivingGate(gateClock).also { it.bind(scope, settingsStore.settings, location.granted) }
+    val driving = DrivingGate(gateClock).also { it.bind(scope, settingsStore.settings, location.granted) { settingsStore.update { s -> s.copy(passengerMode = false) } } }
     val uiMode: StateFlow<UiMode> = driving.mode
 
     /** One GPS sample from the panel's controls (null while "GPS lost"), then a tick. Runs every second unless [autoFeed] is off. */
@@ -123,8 +123,12 @@ class SandboxEnv(
     /** Sets the simulated speed and delivers a sample at once. */
     fun driveAt(kmh: Double) { speedKmh.value = kmh; feed() }
 
+    /** The "I am parked" hold of the Glance lower area. */
+    val drivingActions = object : com.marketsboard.ui.DrivingActions { override fun onConfirmParked() { driving.confirmParked() } }
+
     init {
-        if (autoFeed) controlScope.launch { while (true) { feed(); delay(1_000) } }
+        // The first sample (0 km/h) ends the gate's Checking phase at once; then one per second.
+        if (autoFeed) { feed(); controlScope.launch { while (true) { delay(1_000); feed() } } }
     }
 
     /** "The hotspot is back": fired at the end of a simulated drop, like the Android connectivity callback. */
@@ -142,13 +146,13 @@ class SandboxEnv(
     val feedStore = FeedStore(File(dir, "feeds.json"), time.deviceClock)
     val news = NewsRepository(feedStore, watchlist.items, newsFetcher, cache, time.deviceClock)
     val newsPoller = NewsPoller(scope, news, feedStore, watchlist.items, gate.isActive, network, time.deviceClock, NewsPollConfig(timeScale = { time.speed }))
-    val newsPresenter = NewsPresenter(scope, news, newsPoller, uiMode)
+    val newsPresenter = NewsPresenter(scope, news, newsPoller, uiMode, com.marketsboard.ui.news.LinkOpener { url -> openUrl(url) })
 
     // ---- settings and the spoken briefing (the speaker is a fake: no sound, a log and the caption) ----
     val speaker = FakeSpeaker(scope, speedUp = { time.speed })
     val settingsPresenter = SettingsPresenter(scope, settingsStore, driving, location, speaker.availability, AboutInfo("sandbox", "desktop"), uiMode, io)
     val history = BriefingHistoryStore(File(dir, "briefing-history.json"), time.deviceClock)
-    val briefing = BriefingController(scope, LiveBriefingSource(data, news, time.deviceClock), speaker, settingsStore.settings, history, gate.isActive, uiMode, io = io)
+    val briefing = BriefingController(scope, LiveBriefingSource(data, news, time.deviceClock), speaker, settingsStore.settings, history, uiMode, io = io)
 
     /** The last link the article screen asked to open (nothing is really opened unless the desktop allows it). */
     val lastOpenedUrl = MutableStateFlow("")

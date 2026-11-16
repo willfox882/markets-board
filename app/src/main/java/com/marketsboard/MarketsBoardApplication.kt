@@ -2,6 +2,7 @@ package com.marketsboard
 
 import android.app.Application
 import android.util.Log
+import com.marketsboard.ui.news.LinkOpener
 import com.marketsboard.ui.settings.AboutInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,12 +31,27 @@ class MarketsBoardApplication : Application() {
         }
         runtime = graph?.let {
             try {
-                AppRuntime(it, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate), AndroidClock, ConnectivityNetworkSignal(this), AndroidSpeaker(this), location, aboutInfo())
+                AppRuntime(it, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate), AndroidClock, ConnectivityNetworkSignal(this), AndroidSpeaker(this), location, aboutInfo(), LinkOpener { url -> openUrl(url) })
             } catch (e: Throwable) {
                 Log.e("MarketsBoard", "ui runtime init failed", e)
                 null
             }
         }
+    }
+
+    /** Opens an http(s) link in the system browser (a new task, since this is the application context); false when there is no browser or the link is not a web link. */
+    private fun openUrl(url: String): Boolean = try {
+        val uri = android.net.Uri.parse(url)
+        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
+        if (scheme != "http" && scheme != "https") {
+            false
+        } else {
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri).addCategory(android.content.Intent.CATEGORY_BROWSABLE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        }
+    } catch (e: Throwable) {
+        Log.w("MarketsBoard", "could not open link", e)
+        false
     }
 
     private fun aboutInfo(): AboutInfo = try {

@@ -57,7 +57,7 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
                     subtitle = "Keep the full dashboard while the truck moves",
                 )
                 Hairline()
-                ValueRow("Status", DrivingTexts.statusValue(d))
+                ValueRow("Status", DrivingTexts.statusValue(d), valueColor = if (d.unknown || !state.locationGranted) Dash.amber else Dash.dim)
                 Hairline()
                 ValueRow("Speed", if (state.locationGranted) DrivingTexts.speed(d) else "Location is off")
                 Hairline()

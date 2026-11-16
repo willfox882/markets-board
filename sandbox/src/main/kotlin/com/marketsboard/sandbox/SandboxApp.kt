@@ -39,7 +39,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.LocalBackHook
-import com.marketsboard.ui.LocalOpenUrl
 import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 
@@ -57,7 +56,6 @@ fun SandboxApp() {
     MarketsBoardTheme {
         CompositionLocalProvider(
             LocalBackHook provides { enabled, onBack -> SideEffect { backCallback = if (enabled) onBack else null } },
-            LocalOpenUrl provides { url -> env.openUrl(url) },
         ) {
             Row(
                 Modifier.fillMaxSize().background(Color.Black).onKeyEvent {
@@ -76,7 +74,7 @@ fun SandboxApp() {
                         MarketsBoardRoot(
                             state, newsState, actions = env.presenter, mode = driving.mode, newsActions = env.newsPresenter,
                             driving = driving, briefing = briefing, briefingActions = env.briefing,
-                            settings = settings, settingsActions = env.settingsPresenter,
+                            settings = settings, settingsActions = env.settingsPresenter, drivingActions = env.drivingActions,
                         )
                     }
                 }

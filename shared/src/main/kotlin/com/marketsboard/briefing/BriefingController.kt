@@ -49,6 +49,8 @@ data class BriefingUiState(
     val phase: BriefingPhase = BriefingPhase.Idle,
     /** The sentence being spoken (blank while preparing). */
     val caption: String = "",
+    /** Plain progress name for Glance ("XEQT", "Headline", "Note"): the TTS script is never shown while driving. */
+    val label: String = "",
     /** Plain-language note: why the briefing is only text, why it stopped. */
     val message: String = "",
     /** The briefing as text lines when it could not be spoken. Empty in Glance and when there is nothing to read. */
@@ -106,9 +108,11 @@ data class BriefingConfig(
  * the last 24 h), and speaks it through the [Speaker]. It never starts by itself: only [onBrief] or [trigger].
  *
  * - Double taps are ignored while preparing or speaking; [onStop] stops everything at once.
- * - It stops when the app goes to the background ([isActive] false) and when the speaker reports the audio focus was lost.
- * - Headlines count as read once their sentence starts; the ids are persisted through [history] (off the main thread) at
- *   the end, however it ends.
+ * - It keeps speaking when the Activity pauses (the owner switches to Truck Dash); it stops on Stop, when the speaker
+ *   reports focus loss of any kind, or when the speaker is shut down (Activity destroyed).
+ * - A headline counts as read when its sentence has finished (the next sentence started, or the briefing finished), and
+ *   the text fallback marks them read when it shows the lines (never in Glance, where the lines are hidden); the ids are
+ *   persisted through [history] (off the main thread) at the end, however it ends.
  * - If the speaker is unavailable, or voice is off in Settings, the briefing is shown as text with a plain message. In
  *   Glance the text lines are never shown (reading while moving is not allowed), only the message.
  * - A refresh that times out still speaks, with an extra caveat unless the text already carries one.
@@ -120,12 +124,12 @@ class BriefingController(
     private val speaker: Speaker,
     private val settings: StateFlow<AppSettings>,
     private val history: BriefingHistory,
-    isActive: StateFlow<Boolean>,
     mode: StateFlow<UiMode> = MutableStateFlow(UiMode.Normal),
     private val config: BriefingConfig = BriefingConfig(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : BriefingActions, BriefingTrigger {
     private val inner = MutableStateFlow(BriefingUiState())
+    private val modeFlow = mode
 
     /** The UI state; in Glance the text lines are removed (the controller, not the screen, enforces that). */
     val state: StateFlow<BriefingUiState> = combine(inner, mode) { s, m -> if (m == UiMode.Glance && s.lines.isNotEmpty()) s.copy(lines = emptyList()) else s }
@@ -136,8 +140,6 @@ class BriefingController(
     private var run = 0
 
     init {
-        // Going to the background ends everything.
-        scope.launch { isActive.collect { if (!it) endAll() } }
         // Entering Glance while a text briefing is showing: it will not linger.
         scope.launch { mode.collect { if (it == UiMode.Glance && inner.value.phase == BriefingPhase.Text) scheduleClear(config.noticeMs / 2) } }
     }
@@ -211,8 +213,8 @@ class BriefingController(
         // 3. Text only, or speak.
         val textLines = list.map { it.text }
         when {
-            !s.voiceEnabled -> return finish(id, BriefingUiState(BriefingPhase.Text, message = "Voice is off in Settings. Here is the briefing as text.", lines = textLines))
-            speaker.availability.value == SpeakerAvailability.Unavailable -> return finish(id, BriefingUiState(BriefingPhase.Text, message = UNAVAILABLE, lines = textLines))
+            !s.voiceEnabled -> return finishText(id, "Voice is off in Settings. Here is the briefing as text.", textLines)
+            speaker.availability.value == SpeakerAvailability.Unavailable -> return finishText(id, UNAVAILABLE, textLines)
         }
         speaker.speak(list, s.speechRate)
         // 4. Follow the speaker until it ends. speak() set Preparing before returning, so no stale end state is seen.
@@ -220,23 +222,37 @@ class BriefingController(
             if (id != run) return@first true
             if (st is SpeakerState.Speaking) {
                 val i = st.index.coerceIn(0, list.lastIndex)
-                markHeard(i)
-                inner.value = BriefingUiState(BriefingPhase.Speaking, caption = list[i].text, index = i + 1, total = list.size)
+                markHeard(i) // the sentences before this one have finished
+                val u = list[i]
+                inner.value = BriefingUiState(BriefingPhase.Speaking, caption = u.text, label = u.label.ifEmpty { kindLabel(u.kind) }, index = i + 1, total = list.size)
             }
-            st is SpeakerState.Finished || st is SpeakerState.Error
+            // Idle after speak() means somebody else stopped the speaker (shutdown): the briefing ends quietly.
+            st is SpeakerState.Finished || st is SpeakerState.Error || st == SpeakerState.Idle
         }
         if (id != run) return
         when (end) {
             SpeakerState.Finished -> {
-                markHeard(list.lastIndex)
+                markHeard(list.size) // every sentence has finished
                 finish(id, BriefingUiState())
             }
+            SpeakerState.Idle -> finish(id, BriefingUiState())
             is SpeakerState.Error -> {
                 speaker.stop()
                 finish(id, errorState(end.kind, textLines))
             }
             else -> Unit
         }
+    }
+
+    private fun kindLabel(k: UtteranceKind): String = when (k) {
+        UtteranceKind.Headline, UtteranceKind.HeadlinesIntro -> "Headlines"
+        UtteranceKind.Caveat, UtteranceKind.Note -> "Note"
+        else -> "Briefing"
+    }
+
+    /** The text fallback: the user can read the headlines, so they count as read (not in Glance, where the lines are hidden). */
+    private fun finishText(id: Int, message: String, lines: List<String>) {
+        finish(id, BriefingUiState(BriefingPhase.Text, message = message, lines = lines))
     }
 
     private fun errorState(kind: SpeakerFault, textLines: List<String>): BriefingUiState = when (kind) {
@@ -246,14 +262,16 @@ class BriefingController(
         SpeakerFault.FocusLost -> BriefingUiState(BriefingPhase.Text, message = "Stopped because another app started playing audio.")
     }
 
-    /** Headlines whose sentence has started count as read. [i] is the sentence index reached. */
-    private fun markHeard(i: Int) {
-        val reached = utterances.take(i + 1).count { it.kind == UtteranceKind.Headline }
+    /** [done] sentences (indices below it) have finished; the headlines among them count as read. */
+    private fun markHeard(done: Int) {
+        val reached = utterances.take(done).count { it.kind == UtteranceKind.Headline }
         if (reached > heard.size) heard = ids.take(reached)
     }
 
     private fun finish(id: Int, ui: BriefingUiState) {
         if (id != run) return
+        // Text the user can read (not in Glance, where the lines are hidden) counts as read.
+        if (ui.phase == BriefingPhase.Text && ui.lines.isNotEmpty() && modeFlow.value != UiMode.Glance) heard = ids
         inner.value = ui
         commitHeard()
         if (ui.phase == BriefingPhase.Text) scheduleClear(if (ui.lines.isEmpty()) config.noticeMs else config.noticeMs * 8)

@@ -49,14 +49,14 @@ import com.marketsboard.ui.liveDotColor
  * [state] and goes out through [actions].
  */
 @Composable
-fun MarketsScreen(state: MarketsUiState, modifier: Modifier = Modifier, actions: MarketsActions = MarketsActions.None) {
+fun MarketsScreen(state: MarketsUiState, modifier: Modifier = Modifier, actions: MarketsActions = MarketsActions.None, gpsUnknown: Boolean = false) {
     LocalBackHook.current(state.canGoBack) { actions.onBack() }
     // Hoisted so the list keeps its scroll position while an overlay is open.
     val listState = rememberLazyListState()
     val overlay = state.detail != null || state.add != null
     Box(modifier.fillMaxSize()) {
         // The list is NOT composed under an overlay: nothing behind it can receive a touch or a screen-reader focus.
-        if (!overlay) { if (state.mode == UiMode.Glance) GlancePage(state) else WatchlistPage(state, actions, listState) }
+        if (!overlay) { if (state.mode == UiMode.Glance) GlancePage(state) else WatchlistPage(state, actions, listState, gpsUnknown) }
         state.detail?.let { DetailScreen(it, actions, Modifier.fillMaxSize().background(Dash.bg).consumeTouches()) }
         state.add?.let { AddSheet(it, actions, Modifier.fillMaxSize().background(Dash.bg).consumeTouches()) }
     }
@@ -89,7 +89,7 @@ private fun Modifier.consumeTouches(): Modifier = pointerInput(Unit) {
 }
 
 @Composable
-private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listState: LazyListState) {
+private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listState: LazyListState, gpsUnknown: Boolean = false) {
     val glance = state.mode == UiMode.Glance
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), state = listState, verticalArrangement = Arrangement.spacedBy(0.dp)) {
         item {
@@ -101,6 +101,7 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listSt
                 }
             }
             HeaderStatus(state.header)
+            if (gpsUnknown) GpsUnknownLine()
         }
         if (state.clockSkew) item { ClockBanner() }
         if (state.notice.isNotEmpty()) {
@@ -147,7 +148,7 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listSt
 
 /**
  * Glance (the truck moves): the title, the status line, then at most [GLANCE_MAX] rows of name, price and change, large and
- * evenly spaced so up to six fit without scrolling. Nothing is tappable. A quiet line says how many more are on the full list.
+ * evenly spaced so up to four fit without scrolling. Nothing is tappable. A quiet line says how many more are on the full list.
  */
 @Composable
 private fun GlancePage(state: MarketsUiState) {
@@ -175,7 +176,16 @@ private fun GlancePage(state: MarketsUiState) {
     }
 }
 
-private const val GLANCE_MAX = 6
+private const val GLANCE_MAX = 4
+
+/** Amber line under the header while the app cannot tell whether the truck moves (no permission, no fix, location off). */
+@Composable
+fun GpsUnknownLine(modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Dot(Dash.amber, 6)
+        Text(com.marketsboard.core.DrivingTexts.GPS_UNKNOWN, color = Dash.amber, fontSize = 13.sp, lineHeight = 17.sp, modifier = Modifier.padding(start = 8.dp))
+    }
+}
 
 /** "● Live  ·  Updated 12:41 PM ET": dot colour carries the state (green live, grey closed or loading, amber otherwise). */
 @Composable

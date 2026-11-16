@@ -52,7 +52,7 @@ class SandboxNewsEnvTest {
         val d = until { e.newsPresenter.state.value.detail }
         assertEquals(s.rows.first().title, d.title)
         e.driveAt(40.0)
-        until { e.newsPresenter.state.value.takeIf { it.detail == null && it.rows.size == 3 } }
+        until { e.newsPresenter.state.value.takeIf { it.detail == null && it.rows.size == 1 } }
         e.driveAt(0.0)
     }
 

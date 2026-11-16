@@ -10,7 +10,9 @@ import com.marketsboard.refresh.NetworkSignal
 import com.marketsboard.refresh.NewsPoller
 import com.marketsboard.refresh.RefreshController
 import com.marketsboard.speech.Speaker
+import com.marketsboard.ui.DrivingActions
 import com.marketsboard.ui.markets.MarketsPresenter
+import com.marketsboard.ui.news.LinkOpener
 import com.marketsboard.ui.news.NewsPresenter
 import com.marketsboard.ui.settings.AboutInfo
 import com.marketsboard.ui.settings.LocationAccess
@@ -38,16 +40,23 @@ class AppRuntime(
     val speaker: Speaker,
     val location: LocationAccess,
     about: AboutInfo = AboutInfo(),
+    links: LinkOpener = LinkOpener.None,
 ) {
     /** Flipped by the Activity: [ActiveGate.resume] in onResume, [ActiveGate.pause] in onPause. Also gates the news poller and the briefing. */
     val gate = ActiveGate()
 
     val driving = DrivingGate(clock, passenger = graph.settingsStore.settings.value.passengerMode, permission = location.granted.value)
-        .also { it.bind(scope, graph.settingsStore.settings, location.granted) }
+        // Passenger mode is session only and expires after 10 minutes stopped: the switch follows the gate.
+        .also { it.bind(scope, graph.settingsStore.settings, location.granted) { graph.settingsStore.update { s -> s.copy(passengerMode = false) } } }
 
     init {
         scope.launch { while (true) { delay(1_000); driving.tick() } }
+        // The first run (or a recovery) creates settings.json: off the main thread.
+        scope.launch(Dispatchers.IO) { graph.settingsStore.flush() }
     }
+
+    /** The "I am parked" hold after a long loss of signal while locked. */
+    val drivingActions = object : DrivingActions { override fun onConfirmParked() { driving.confirmParked() } }
 
     val controller = RefreshController(
         scope = scope,
@@ -64,12 +73,12 @@ class AppRuntime(
 
     /** News polling (every 10 min, immediately on resume and when the network returns) on the same gate. */
     val newsPoller = NewsPoller(scope, graph.news, graph.feedStore, graph.watchlist.items, gate.isActive, network, clock)
-    val newsPresenter = NewsPresenter(scope, graph.news, newsPoller, driving.mode)
+    val newsPresenter = NewsPresenter(scope, graph.news, newsPoller, driving.mode, links)
 
     val settingsPresenter = SettingsPresenter(scope, graph.settingsStore, driving, location, speaker.availability, about, driving.mode)
 
     /** "Brief me": allowed in both modes. Also the [com.marketsboard.briefing.BriefingTrigger] for the media key (and a future steering wheel hook). */
     val briefing = BriefingController(
-        scope, LiveBriefingSource(graph.data, graph.news, clock), speaker, graph.settingsStore.settings, graph.briefingHistory, gate.isActive, driving.mode,
+        scope, LiveBriefingSource(graph.data, graph.news, clock), speaker, graph.settingsStore.settings, graph.briefingHistory, driving.mode,
     )
 }

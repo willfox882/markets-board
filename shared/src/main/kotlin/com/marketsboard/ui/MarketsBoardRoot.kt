@@ -1,7 +1,6 @@
 package com.marketsboard.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -20,6 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,10 +73,15 @@ fun MarketsBoardRoot(
     briefingActions: BriefingActions = BriefingActions.None,
     settings: SettingsUiState = SettingsUiState(),
     settingsActions: SettingsActions = SettingsActions.None,
+    drivingActions: DrivingActions = DrivingActions.None,
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     val glance = mode == UiMode.Glance
     val shown = if (glance && tab == MbTab.Settings) MbTab.Markets else tab
+    // Entering Glance: drop the focus and hide the on-screen keyboard (a text field must not stay armed while the truck moves).
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(glance) { if (glance) { focus.clearFocus(force = true); keyboard?.hide() } }
     DesignScale {
         Column(Modifier.fillMaxSize().background(Dash.bg)) {
             // Detail, the article and the add sheet are full-screen: the strip and tab bar step aside so their content is not cut off.
@@ -86,16 +93,17 @@ fun MarketsBoardRoot(
                 exit = fadeOut(tween(160)) + shrinkVertically(tween(160)),
             ) { BriefingBand(briefing) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                Crossfade(targetState = glance, animationSpec = tween(220), label = "mode") { g ->
-                    val m = if (g) UiMode.Glance else UiMode.Normal
-                    when (shown) {
-                        MbTab.Markets -> MarketsScreen(if (markets.mode == m) markets else markets.copy(mode = m), actions = actions)
-                        MbTab.News -> NewsScreen(if (news.mode == m) news else news.copy(mode = m), actions = newsActions)
-                        MbTab.Settings -> SettingsScreen(if (settings.mode == m) settings else settings.copy(mode = m), actions = settingsActions)
-                    }
+                // No cross-fade: the outgoing tree must never stay on screen (or touchable) while the truck moves.
+                val m = if (glance) UiMode.Glance else UiMode.Normal
+                when (shown) {
+                    MbTab.Markets -> MarketsScreen(if (markets.mode == m) markets else markets.copy(mode = m), actions = actions, gpsUnknown = !glance && driving.unknown)
+                    MbTab.News -> NewsScreen(if (news.mode == m) news else news.copy(mode = m), actions = newsActions)
+                    MbTab.Settings -> SettingsScreen(if (settings.mode == m) settings else settings.copy(mode = m), actions = settingsActions)
                 }
             }
-            if (glance) Box(Modifier.animateContentSize(tween(220)).height(glanceLowerHeight(briefing))) { GlanceLower(briefing, briefingActions) }
+            if (glance) Box(Modifier.animateContentSize(tween(220)).height(glanceLowerHeight(briefing, driving.parkedPrompt))) {
+                GlanceLower(briefing, briefingActions, parkedPrompt = driving.parkedPrompt, onConfirmParked = drivingActions::onConfirmParked)
+            }
             if (!fullScreen) Hairline()
             if (!fullScreen) Row(Modifier.fillMaxWidth().height(60.dp)) {
                 MbTab.entries.forEach { t ->

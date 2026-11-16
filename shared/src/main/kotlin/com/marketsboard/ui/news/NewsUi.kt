@@ -43,6 +43,8 @@ data class NewsUiState(
     val refreshing: Boolean = false,
     val detail: HeadlineDetailUi? = null,
     val mode: UiMode = UiMode.Normal,
+    /** The last "Open article" found no browser (amber note under the button). */
+    val linkFailed: Boolean = false,
     /** Short text of the calm empty state. */
     val emptyTitle: String = "",
     val emptyHint: String = "",
@@ -57,6 +59,9 @@ interface NewsActions {
     fun onRetry() {}
     fun onSetFilter(filter: NewsFilter) {}
     fun onOpen(id: String) {}
+
+    /** "Open article": hands the article's link to the platform. A guarded presenter action, blocked in Glance. */
+    fun onOpenLink(id: String) {}
     fun onCloseDetail() {}
 
     companion object { val None: NewsActions = object : NewsActions {} }

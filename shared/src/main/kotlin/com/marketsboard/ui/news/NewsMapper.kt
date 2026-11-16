@@ -14,7 +14,7 @@ import java.util.Locale
 
 /** Pure mapping from the repository's [NewsState] (plus navigation) to what the screen draws. */
 object NewsMapper {
-    const val GLANCE_ROWS = 3
+    const val GLANCE_ROWS = 1
     private val STAMP = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US)
 
     /** [nowMs] is the corrected wall time (device clock plus the measured server offset). */

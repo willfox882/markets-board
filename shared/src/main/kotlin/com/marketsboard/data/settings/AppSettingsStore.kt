@@ -19,7 +19,7 @@ import kotlinx.serialization.json.put
  * edited or half written file can never produce a rate of 40 or a NaN.
  */
 data class AppSettings(
-    /** Passenger mode: the full dashboard stays available while the truck moves. */
+    /** Passenger mode: the full dashboard stays available while the truck moves. SESSION ONLY: never written to disk, so a cold start is always off (the gate also switches it off after 10 minutes stopped). */
     val passengerMode: Boolean = false,
     /** Speak the briefing. Off: "Brief me" shows it as text. */
     val voiceEnabled: Boolean = true,
@@ -67,18 +67,17 @@ class AppSettingsStore(file: File, clock: Clock = Clock.System) {
         val r = io.load()
         loadStatus = r.status
         _settings.value = (r.value ?: AppSettings()).sanitized()
-        // A recovery or a first run writes the (default) file once so it exists.
-        if (!readOnly && (r.status == LoadStatus.Fresh || r.status == LoadStatus.RecoveredFromBackup || r.status == LoadStatus.RecoveredFromCorrupt)) {
-            dirty = true
-            flush()
-        }
+        // A recovery or a first run marks the (default) file for writing; the first [flush] (IO dispatcher) creates it. Nothing is written here: this runs on the main thread.
+        if (!readOnly && (r.status == LoadStatus.Fresh || r.status == LoadStatus.RecoveredFromBackup || r.status == LoadStatus.RecoveredFromCorrupt)) dirty = true
     }
 
     fun update(f: (AppSettings) -> AppSettings) = synchronized(lock) {
-        val next = f(_settings.value).sanitized()
-        if (next != _settings.value) {
+        val prev = _settings.value
+        val next = f(prev).sanitized()
+        if (next != prev) {
             _settings.value = next
-            dirty = true
+            // Passenger mode is session only: changing just that needs no write.
+            if (next.copy(passengerMode = false) != prev.copy(passengerMode = false)) dirty = true
         }
     }
 
@@ -104,7 +103,7 @@ class AppSettingsStore(file: File, clock: Clock = Clock.System) {
         fun bool(key: String, def: Boolean): Boolean = (o[key] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.let { it == "true" || (it != "false" && def) } ?: def
         val d = AppSettings()
         return AppSettings(
-            passengerMode = bool("passengerMode", d.passengerMode),
+            passengerMode = false, // session only: a stored value (older file, hand edit) is ignored
             voiceEnabled = bool("voiceEnabled", d.voiceEnabled),
             speechRate = o.num("speechRate")?.toFloat() ?: d.speechRate,
             includeNews = bool("includeNews", d.includeNews),
@@ -120,7 +119,6 @@ class AppSettingsStore(file: File, clock: Clock = Clock.System) {
             JsonObject.serializer(),
             buildJsonObject {
                 put("version", VERSION)
-                put("passengerMode", s.passengerMode)
                 put("voiceEnabled", s.voiceEnabled)
                 put("speechRate", s.speechRate.toDouble())
                 put("includeNews", s.includeNews)

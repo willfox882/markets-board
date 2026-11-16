@@ -20,6 +20,7 @@ import com.marketsboard.data.tempDir
 import com.marketsboard.refresh.NewsRefresher
 import com.marketsboard.refresh.Refresher
 import com.marketsboard.ui.markets.MarketsPresenter
+import com.marketsboard.ui.news.LinkOpener
 import com.marketsboard.ui.news.NewsFilter
 import com.marketsboard.ui.news.NewsPresenter
 import com.marketsboard.ui.settings.LocationAccess
@@ -27,6 +28,8 @@ import com.marketsboard.ui.settings.SettingsPresenter
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -261,6 +264,7 @@ class GlanceContractTest {
             NewsAct.Retry -> p.onRetry()
             NewsAct.SetFilter -> p.onSetFilter(NewsFilter.MySymbols)
             NewsAct.Open -> p.onOpen("a")
+            NewsAct.OpenLink -> p.onOpenLink("a")
             NewsAct.CloseDetail -> p.onCloseDetail()
         }
         done.hashCode()
@@ -269,7 +273,8 @@ class GlanceContractTest {
     @Test fun inGlanceEveryBlockedNewsActionIsANoOp() = runTest {
         val mode = MutableStateFlow(UiMode.Normal)
         val counter = CountingNews()
-        val p = NewsPresenter(backgroundScope, FakeNews(), counter, mode, tick = MutableSharedFlow())
+        val opened = mutableListOf<String>()
+        val p = NewsPresenter(backgroundScope, FakeNews(), counter, mode, LinkOpener { opened += it; true }, tick = MutableSharedFlow())
         runCurrent()
         p.onOpen("a"); runCurrent()
         assertNotNull(p.state.value.detail)
@@ -280,12 +285,60 @@ class GlanceContractTest {
             assertEquals("state changed by $act", before, p.state.value)
         }
         assertEquals("no forced fetch while driving", 0, counter.n)
+        assertEquals("no link opened while driving", 0, opened.size)
         assertNull(p.state.value.detail)
         assertEquals(NewsFilter.All, p.state.value.filter)
         mode.value = UiMode.Normal; runCurrent()
         assertNull("the article stayed closed", p.state.value.detail)
         p.onRefresh()
         assertEquals(1, counter.n)
+    }
+
+    @Test fun openArticleGoesThroughThePresenterAndIsBlockedInGlance() = runTest {
+        val mode = MutableStateFlow(UiMode.Normal)
+        val opened = mutableListOf<String>()
+        var ok = true
+        val p = NewsPresenter(backgroundScope, FakeNews(), NewsRefresher.None, mode, LinkOpener { opened += it; ok }, tick = MutableSharedFlow())
+        runCurrent()
+        p.onOpen("a"); runCurrent()
+        p.onOpenLink("a"); runCurrent()
+        assertEquals(listOf("https://e.com/a"), opened)
+        assertFalse(p.state.value.linkFailed)
+        ok = false
+        p.onOpenLink("a"); runCurrent()
+        assertTrue("no browser is reported by the presenter", p.state.value.linkFailed)
+        p.onOpenLink("nope"); runCurrent()
+        assertEquals("an unknown article opens nothing", 2, opened.size)
+        mode.value = UiMode.Glance; runCurrent()
+        p.onOpenLink("a"); runCurrent()
+        assertEquals("nothing opened in Glance", 2, opened.size)
+        assertFalse("and no amber note either", p.state.value.linkFailed)
+    }
+
+    @Test fun aGlanceThatArrivesDuringAnInFlightAddLeavesNavEmptyAndTheStoreAllOrNothing() = runBlocking {
+        // real dispatchers and real timing: the provider answers after 300 ms, Glance arrives at 100 ms
+        val mode = MutableStateFlow(UiMode.Normal)
+        val clock = com.marketsboard.data.FakeClock()
+        val store = WatchlistStore(File(tempDir(), "watchlist.json"), clock)
+        val provider = FakeProvider(clock).apply { quoteDelayMs = 300 }
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+        try {
+            val p = MarketsPresenter(scope, MarketsData(store, FakeQuotesSource(clock), provider), Refresher.None, clock, Dispatchers.IO, mode = mode)
+            p.onAddOpen(); p.onQueryChange("SHOP.TO"); p.onSubmitTyped()
+            kotlinx.coroutines.delay(100)
+            assertTrue(p.state.value.add?.busy == true)
+            mode.value = UiMode.Glance
+            kotlinx.coroutines.delay(800)
+            val s = p.state.value
+            assertNull(s.add); assertNull(s.detail); assertFalse(s.editMode); assertNull(s.rename); assertNull(s.confirmRemove)
+            val syms = store.items.value.map { it.symbol }
+            assertTrue("all or nothing: $syms", syms == listOf("XEQT.TO", "MSFT") || syms == listOf("XEQT.TO", "MSFT", "SHOP.TO"))
+            mode.value = UiMode.Normal
+            kotlinx.coroutines.delay(100)
+            assertNull("nothing reopened by itself", p.state.value.add)
+        } finally {
+            scope.cancel()
+        }
     }
 
     // ---- Settings ---------------------------------------------------------------------------------------------------
@@ -363,6 +416,28 @@ class GlanceContractTest {
         assertEquals(MarketsAct.entries.size, count("shared/src/main/kotlin/com/marketsboard/ui/markets/MarketsUi.kt", "MarketsActions"))
         assertEquals(NewsAct.entries.size, count("shared/src/main/kotlin/com/marketsboard/ui/news/NewsUi.kt", "NewsActions"))
         assertEquals(SettingsAct.entries.size, count("shared/src/main/kotlin/com/marketsboard/ui/settings/SettingsUi.kt", "SettingsActions"))
+    }
+
+    @Test fun everyGuardedCallUsesTheEnumOfItsOwnPresenterAndTheLinkHookIsOnlyUsedFromAGuardedPath() {
+        val base = "shared/src/main/kotlin/com/marketsboard/ui/"
+        for ((file, enum) in listOf("markets/MarketsPresenter.kt" to "MarketsAct", "news/NewsPresenter.kt" to "NewsAct", "settings/SettingsPresenter.kt" to "SettingsAct")) {
+            val src = sourceOf(base + file)
+            val calls = Regex("guarded\\((\\w+)\\.(\\w+)\\)").findAll(src).toList()
+            assertTrue("no guarded calls in $file", calls.size >= 6)
+            assertTrue("$file uses another presenter's enum: ${calls.map { it.value }}", calls.all { it.groupValues[1] == enum })
+            // and every enum entry is used exactly where its action lives
+        }
+        // the old composition local that let a screen open a link by itself is gone: the opener is only reachable through the presenter
+        val offenders = listOf("shared/src/main/kotlin", "app/src/main", "sandbox/src/main").flatMap { dir ->
+            var d: File? = File(System.getProperty("user.dir")).absoluteFile
+            while (d != null && !File(d, "settings.gradle.kts").exists()) d = d.parentFile
+            File(requireNotNull(d), dir).walkTopDown().filter { it.extension == "kt" && "LocalOpenUrl" in it.readText() }.map { it.name }.toList()
+        }
+        assertTrue("LocalOpenUrl still used in $offenders", offenders.isEmpty())
+        val presenter = sourceOf(base + "news/NewsPresenter.kt")
+        val openCalls = Regex("opener\\.open\\(").findAll(presenter).count()
+        assertEquals(1, openCalls)
+        assertTrue(presenter.substringAfter("override fun onOpenLink").substringBefore("override fun onCloseDetail").contains("guarded(NewsAct.OpenLink)"))
     }
 
     @Test fun anAllowedActionNeverAddsAnything() = runTest {

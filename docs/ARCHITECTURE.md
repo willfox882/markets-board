@@ -48,6 +48,8 @@
 - `.../ui/briefing/BriefingUi.kt`: `BriefingBand` (Normal caption under the top strip), `GlanceLower` (big Brief me / caption + Stop in Glance), `BigPill`.
 - `.../core/DrivingGate.kt`: the safety gate (speed samples to `UiMode` + `DrivingReason`), `DrivingStatus`, `DrivingConfig`, `DrivingTexts`, `DrivingGate.bind`.
 - `.../core/SpeedSamples.kt`: pure conversion of one GPS fix (speed, age, accuracy) into a km/h sample or null.
+- `.../speech/SpeechMachine.kt`: the pure generation, focus and engine-lifecycle logic of the speaker (`SpeechPlatform` is what Android provides); `AndroidSpeaker` is a thin adapter.
+- `.../ui/DrivingUi.kt`: `DrivingActions` (the 3 s "I am parked" hold).
 - `.../speech/Speaker.kt`: `Speaker` interface, `SpeakerState` (Idle, Preparing, Speaking, Finished, Error), `SpeakerFault`, `SpeakerAvailability`.
 - `.../briefing/BriefingController.kt`: "Brief me" flow (refresh with 8 s timeout, `Briefings.build`, speak, caption, stop, double tap, background, focus loss, text fallback, alreadySpoken persistence), `BriefingUiState`, `BriefingActions`, `BriefingSource`, `BriefingSnapshot`.
 - `.../briefing/LiveBriefingSource.kt`: `BriefingSource` over `MarketsData` and `NewsSource`.
@@ -135,3 +137,4 @@
 - `app/src/test/kotlin/com/marketsboard/core/DrivingGateTest.kt`, `core/SpeedSamplesTest.kt`: the gate (boundaries, jitter, tunnels, bad samples, passenger, permission, clock jumps, randomised sequences against a reference model) and the GPS fix conversion.
 - `app/src/test/kotlin/com/marketsboard/ui/GlanceContractTest.kt`: the Glance contract (every presenter action enumerated through the `GlanceRules.kt` enums, blocked ones change/write/fetch nothing; overlays close, drafts kept in memory; source scan that every action is guarded).
 - `app/src/test/kotlin/com/marketsboard/briefing/BriefingControllerTest.kt` (with `TestSpeaker`), `data/settings/AppSettingsStoreTest.kt`: briefing flow and the two new stores.
+- `app/src/test/kotlin/com/marketsboard/speech/SpeechMachineTest.kt`: CAN_DUCK focus loss, the init race, the ERROR path, watchdogs (scripted platform).

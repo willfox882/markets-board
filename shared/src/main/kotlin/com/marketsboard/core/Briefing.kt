@@ -15,7 +15,7 @@ import java.util.Locale
 enum class UtteranceKind { Greeting, Caveat, Quote, HeadlinesIntro, Headline, Note }
 
 /** One sentence for the text to speech layer; [pauseAfterMs] is the breath it should take before the next one. */
-data class Utterance(val text: String, val kind: UtteranceKind, val pauseAfterMs: Int)
+data class Utterance(val text: String, val kind: UtteranceKind, val pauseAfterMs: Int, /** Short plain name for the on-screen progress while driving ("XEQT"); never the spoken script. */ val label: String = "")
 
 data class Briefing(
     val utterances: List<Utterance>,
@@ -102,7 +102,7 @@ object Briefings {
         val quoteLines: List<Utterance> = when {
             rows.isEmpty() -> listOf(Utterance("Your watchlist is empty.", UtteranceKind.Note, 400))
             priced.isEmpty() -> listOf(Utterance("Prices are not available yet.", UtteranceKind.Note, 400))
-            else -> priced.map { Utterance(quoteSentence(it), UtteranceKind.Quote, 350) } +
+            else -> priced.map { Utterance(quoteSentence(it), UtteranceKind.Quote, 350, tickerBase(it.symbol)) } +
                 unpriced.map { Utterance("No price available for ${spokenName(it)}.", UtteranceKind.Note, 300) }
         }
         val picked = if (input.includeHeadlines) pickHeadlines(input.headlines, input.nowMs, input.alreadySpoken) else emptyList()

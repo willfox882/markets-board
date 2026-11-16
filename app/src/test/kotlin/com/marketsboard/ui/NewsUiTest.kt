@@ -129,9 +129,9 @@ class NewsMapperTest {
         assertTrue(map(fresh.copy(refreshing = true)).refreshing)
     }
 
-    @Test fun glanceShowsTheTopThreeTitlesOnlyAndNothingToTap() {
+    @Test fun glanceShowsOnlyTheTopHeadlineAndNothingToTap() {
         val u = map(fresh.copy(lastPassFailed = true, overall = NewsOverall.Stale(1_800_000)), NewsFilter.MySymbols, open = "a", mode = UiMode.Glance)
-        assertEquals(listOf("a", "b", "c"), u.rows.map { it.id })
+        assertEquals(listOf("a"), u.rows.map { it.id })
         assertTrue(u.rows.all { it.summary.isEmpty() && it.tags.isEmpty() })
         assertNull(u.detail)
         assertEquals("", u.banner)

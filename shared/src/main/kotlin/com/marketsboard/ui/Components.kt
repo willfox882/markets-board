@@ -234,13 +234,13 @@ fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modi
 
 /** Settings-style row: title on the left, current value and a chevron on the right. */
 @Composable
-fun ValueRow(title: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+fun ValueRow(title: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, valueColor: Color = Dash.dim) {
     Row(
         modifier.fillMaxWidth().height(60.dp).let { if (onClick != null) it.clickable(onClick = onClick) else it },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, color = Dash.text, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-        Text(value, color = Dash.dim, fontSize = 15.sp)
+        Text(value, color = valueColor, fontSize = 15.sp)
         if (onClick != null) Text("  ›", color = Dash.faint, fontSize = 20.sp)
     }
 }

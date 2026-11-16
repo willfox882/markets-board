@@ -79,7 +79,7 @@ fun main(args: Array<String>) {
     // ---- M4: driving safety, glance, settings and the briefing ----
     val moving = DrivingStatus(UiMode.Glance, DrivingReason.Moving, 62.0)
     val parked = DrivingStatus(UiMode.Normal, DrivingReason.Parked, 0.0)
-    val speaking = BriefingUiState(BriefingPhase.Speaking, caption = "X E Q T, 41 dollars 25 cents, down 4.6 percent.", index = 3, total = 9)
+    val speaking = BriefingUiState(BriefingPhase.Speaking, caption = "X E Q T, 41 dollars 25 cents, down 4.6 percent.", label = "XEQT", index = 3, total = 9)
     val textOnly = BriefingUiState(
         BriefingPhase.Text, message = "Speech is not available on this unit. Here is the briefing as text.",
         lines = listOf(
@@ -104,6 +104,9 @@ fun main(args: Array<String>) {
     shot("briefing_glance_preparing", F.glance(), driving = moving, briefing = BriefingUiState(BriefingPhase.Preparing))
     shot("briefing_text_fallback", F.normal(), driving = parked, briefing = textOnly)
     shot("briefing_glance_unavailable", F.glance(), driving = moving, briefing = textOnly)
+    shot("markets_gps_unknown", F.normal(), driving = DrivingStatus(UiMode.Normal, DrivingReason.NoFixYet))
+    shot("markets_glance_parked_prompt", F.glance(), driving = DrivingStatus(UiMode.Glance, DrivingReason.NoSignalWhileMoving, parkedPrompt = true))
+    shot("markets_glance_checking", F.glance(), driving = DrivingStatus(UiMode.Glance, DrivingReason.Checking))
     shot("passenger_label", F.normal(), driving = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0))
     println("done")
 }

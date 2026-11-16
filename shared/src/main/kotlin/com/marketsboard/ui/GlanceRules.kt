@@ -27,7 +27,7 @@ enum class MarketsAct(val glance: GlanceRule = GlanceRule.Blocked) {
 /** Every action of [com.marketsboard.ui.news.NewsPresenter]. */
 enum class NewsAct(val glance: GlanceRule = GlanceRule.Blocked) {
     Back(GlanceRule.Allowed),
-    Refresh, Retry, SetFilter, Open,
+    Refresh, Retry, SetFilter, Open, OpenLink,
     CloseDetail(GlanceRule.Allowed),
 }
 

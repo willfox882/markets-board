@@ -26,7 +26,6 @@ import com.marketsboard.ui.news.NewsPhase
 import com.marketsboard.ui.news.NewsUiState
 import com.marketsboard.ui.DashFonts
 import com.marketsboard.ui.LocalBackHook
-import com.marketsboard.ui.LocalOpenUrl
 import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 
@@ -72,12 +71,11 @@ class MainActivity : ComponentActivity() {
         hideSystemBars()
         val runtime = (application as MarketsBoardApplication).runtime
         (application as MarketsBoardApplication).location.requester = { requestLocation() }
-        speed = runtime?.let { rt -> LocationSpeedSource(this) { kmh -> rt.driving.onSpeed(kmh) } }
+        speed = runtime?.let { rt -> LocationSpeedSource(this, { kmh, reliable -> rt.driving.onSpeed(kmh, reliable) }, { on -> rt.driving.setLocationOn(on) }) }
         setContent {
             MarketsBoardTheme {
                 CompositionLocalProvider(
                     LocalBackHook provides { enabled, onBack -> BackHandler(enabled, onBack) },
-                    LocalOpenUrl provides { url -> openUrl(url) },
                 ) {
                     if (runtime != null) {
                         val state by runtime.presenter.state.collectAsState()
@@ -88,7 +86,7 @@ class MainActivity : ComponentActivity() {
                         MarketsBoardRoot(
                             state, news, actions = runtime.presenter, mode = driving.mode, newsActions = runtime.newsPresenter,
                             driving = driving, briefing = briefing, briefingActions = runtime.briefing,
-                            settings = settings, settingsActions = runtime.settingsPresenter,
+                            settings = settings, settingsActions = runtime.settingsPresenter, drivingActions = runtime.drivingActions,
                         )
                     } else {
                         // The data layer could not start (storage unavailable): keep the shell alive, show nothing invented.
@@ -102,35 +100,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Opens an http(s) link in the system browser; false when there is no browser or the link is not a web link. */
-    private fun openUrl(url: String): Boolean = try {
-        val uri = Uri.parse(url)
-        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
-        if (scheme != "http" && scheme != "https") {
-            false
-        } else {
-            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
-            true
-        }
-    } catch (e: Throwable) {
-        Log.w("MarketsBoard", "could not open link", e)
-        false
-    }
-
-    /** Refreshing runs only while the Activity is resumed (see RefreshController). */
-    override fun onResume() {
-        super.onResume()
+    /**
+     * Speed tracking and the refresh gate follow the START and STOP of the Activity, not resume and pause: a visible but
+     * unfocused pane (a dialog, another app next to us) must keep reading the speed. Each start begins Checking again.
+     */
+    override fun onStart() {
+        super.onStart()
         val app = application as MarketsBoardApplication
         app.location.refresh() // the user may have changed it in system settings
+        app.runtime?.driving?.restart()
         app.runtime?.gate?.resume()
-        // GPS speed only while the Activity is resumed (no service). Ask once per run when it is missing.
+        // GPS speed only while the Activity is started (no service). Ask once per run when it is missing.
         if (app.location.granted.value) speed?.start() else if (!askedThisRun) requestLocation()
     }
 
-    override fun onPause() {
-        speed?.stop() // the gate keeps its last state; a lost fix never unlocks it
-        (application as MarketsBoardApplication).runtime?.gate?.pause() // also stops any briefing
-        super.onPause()
+    override fun onStop() {
+        speed?.stop() // the gate keeps a lock; a lost fix never unlocks it, and the next start checks again
+        (application as MarketsBoardApplication).runtime?.gate?.pause()
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -146,17 +133,20 @@ class MainActivity : ComponentActivity() {
      * Settings switch is on. A future body-bus steering wheel hook would call the same `BriefingTrigger` with
      * `TriggerSource.SteeringWheel`.
      */
+    private var keyDownConsumed = false
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (isBriefingKey(keyCode)) {
             val rt = (application as MarketsBoardApplication).runtime
-            if (rt != null && event.repeatCount == 0 && rt.briefing.trigger(TriggerSource.MediaKey)) return true
+            keyDownConsumed = rt != null && event.repeatCount == 0 && rt.briefing.trigger(TriggerSource.MediaKey)
+            if (keyDownConsumed) return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
+    /** The key-up is swallowed only when the key-down was (otherwise the system still gets a complete press). */
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        val rt = (application as MarketsBoardApplication).runtime
-        if (isBriefingKey(keyCode) && rt != null && rt.graph.settingsStore.settings.value.mediaKeyTrigger) return true
+        if (isBriefingKey(keyCode) && keyDownConsumed) { keyDownConsumed = false; return true }
         return super.onKeyUp(keyCode, event)
     }
 

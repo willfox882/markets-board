@@ -41,7 +41,6 @@ import com.marketsboard.ui.Dash
 import com.marketsboard.ui.Dot
 import com.marketsboard.ui.Hairline
 import com.marketsboard.ui.LocalBackHook
-import com.marketsboard.ui.LocalOpenUrl
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
 import com.marketsboard.data.news.FeedParser
@@ -62,7 +61,7 @@ fun NewsScreen(state: NewsUiState, modifier: Modifier = Modifier, actions: NewsA
     LocalBackHook.current(state.canGoBack) { actions.onBack() }
     Box(modifier.fillMaxSize()) {
         val d = state.detail
-        if (d == null) NewsList(state, actions) else NewsDetail(d, actions, Modifier.fillMaxSize().background(Dash.bg))
+        if (d == null) NewsList(state, actions) else NewsDetail(d, actions, Modifier.fillMaxSize().background(Dash.bg), state.linkFailed)
     }
 }
 
@@ -193,7 +192,7 @@ fun TagChip(text: String, modifier: Modifier = Modifier) {
 fun GlanceHeadline(r: HeadlineRowUi, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(vertical = 18.dp)) {
         Text(r.source + "  ·  " + r.ago, color = Dash.dim, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(r.title, color = Dash.text, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+        Text(r.title, color = Dash.text, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.Medium, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -243,8 +242,7 @@ private fun ErrorState(reason: String, onRetry: () -> Unit) {
 
 /** The article: source and age, the headline, when it was published, the feed's summary, tags and an Open article button. */
 @Composable
-fun NewsDetail(d: HeadlineDetailUi, actions: NewsActions, modifier: Modifier = Modifier) {
-    val open = LocalOpenUrl.current
+fun NewsDetail(d: HeadlineDetailUi, actions: NewsActions, modifier: Modifier = Modifier, linkFailed: Boolean = false) {
     LazyColumn(modifier.padding(horizontal = 20.dp)) {
         item {
             Row(
@@ -269,12 +267,9 @@ fun NewsDetail(d: HeadlineDetailUi, actions: NewsActions, modifier: Modifier = M
             }
         }
         item {
-            var noBrowser by remember(d.id) { mutableStateOf(false) }
             Column(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                PillButton(
-                    "Open article", { noBrowser = FeedParser.safeUrl(d.url)?.let { u -> !open(u) } ?: true }, Modifier.fillMaxWidth(), kind = PillKind.Secondary,
-                )
-                if (noBrowser) {
+                PillButton("Open article", { actions.onOpenLink(d.id) }, Modifier.fillMaxWidth(), kind = PillKind.Secondary)
+                if (linkFailed) {
                     Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Dot(Dash.amber, 6)
                         Text("No browser on this device", color = Dash.amber, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))

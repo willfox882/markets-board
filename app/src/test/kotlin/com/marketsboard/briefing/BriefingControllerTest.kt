@@ -78,12 +78,11 @@ class BriefingControllerTest {
         val settings: MutableStateFlow<AppSettings> = MutableStateFlow(AppSettings()),
         val history: MemoryHistory = MemoryHistory(),
         val speaker: TestSpeaker = TestSpeaker(),
-        val active: MutableStateFlow<Boolean> = MutableStateFlow(true),
         val mode: MutableStateFlow<UiMode> = MutableStateFlow(UiMode.Normal),
         config: BriefingConfig = BriefingConfig(),
     ) {
         val clock = VirtualClock(scope.testScheduler)
-        val c = BriefingController(scope.backgroundScope, source, speaker, settings, history, active, mode, config, Dispatchers.Unconfined)
+        val c = BriefingController(scope.backgroundScope, source, speaker, settings, history, mode, config, Dispatchers.Unconfined)
         val ui get() = c.state.value
     }
 
@@ -145,11 +144,15 @@ class BriefingControllerTest {
         assertTrue(heads.single().text.startsWith("Gold climbs"))
     }
 
-    @Test fun onlyHeadlinesThatStartedCountAsRead() = runTest {
+    @Test fun aHeadlineCountsAsReadWhenItsSentenceHasFinishedNotWhenItStarts() = runTest {
         val r = rig()
         r.c.onBrief(); runCurrent()
-        val firstHeadline = r.speaker.spoken.indexOfFirst { it.kind == UtteranceKind.Headline }
-        r.speaker.at(firstHeadline); runCurrent()
+        val first = r.speaker.spoken.indexOfFirst { it.kind == UtteranceKind.Headline }
+        r.speaker.at(first); runCurrent()
+        r.c.onStop(); runCurrent()
+        assertTrue("stopped in the middle of the first headline: not read", r.history.writes.isEmpty())
+        r.c.onBrief(); runCurrent()
+        r.speaker.at(first + 1); runCurrent() // the first headline has finished, the second starts
         r.c.onStop(); runCurrent()
         assertEquals(listOf(listOf("h1")), r.history.writes)
     }
@@ -215,7 +218,7 @@ class BriefingControllerTest {
             override fun snapshot(): BriefingSnapshot = snap()
         }
         val r = Rig(this, ScriptedSource(snap()))
-        val c = BriefingController(backgroundScope, src, r.speaker, r.settings, r.history, r.active, r.mode, BriefingConfig(), Dispatchers.Unconfined)
+        val c = BriefingController(backgroundScope, src, r.speaker, r.settings, r.history, r.mode, BriefingConfig(), Dispatchers.Unconfined)
         c.onBrief(); runCurrent()
         assertEquals(BriefingPhase.Text, c.state.value.phase)
         assertEquals("The briefing could not be prepared.", c.state.value.message)
@@ -258,19 +261,19 @@ class BriefingControllerTest {
         assertEquals(BriefingPhase.Idle, r.ui.phase)
     }
 
-    @Test fun backgroundingStopsEverything() = runTest {
+    @Test fun theBriefingKeepsSpeakingWhenTheAppGoesToTheBackground() = runTest {
+        // the owner switches to Truck Dash: no gate is passed any more, so nothing can stop it but Stop, focus loss or shutdown
         val r = rig()
         r.c.onBrief(); runCurrent(); r.speaker.at(1); runCurrent()
-        r.active.value = false; runCurrent()
-        assertEquals(BriefingPhase.Idle, r.ui.phase)
-        assertTrue(r.speaker.stopCalls >= 1)
+        advanceTimeBy(30_000); runCurrent()
+        assertEquals(BriefingPhase.Speaking, r.ui.phase)
+        assertEquals(0, r.speaker.stopCalls)
     }
 
-    @Test fun backgroundingDuringPreparationStopsItToo() = runTest {
-        val r = rig(ScriptedSource(snap()).apply { refreshDelayMs = 5_000 })
-        r.c.onBrief(); runCurrent()
-        r.active.value = false; runCurrent(); advanceTimeBy(10_000); runCurrent()
-        assertEquals(0, r.speaker.speakCalls)
+    @Test fun aShutdownSpeakerEndsTheBriefingQuietly() = runTest {
+        val r = rig()
+        r.c.onBrief(); runCurrent(); r.speaker.at(1); runCurrent()
+        r.speaker.state.value = SpeakerState.Idle; runCurrent() // Activity destroyed: the speaker was shut down
         assertEquals(BriefingPhase.Idle, r.ui.phase)
     }
 
@@ -310,7 +313,7 @@ class BriefingControllerTest {
         r.speaker.state.value = SpeakerState.Error(SpeakerFault.InitFailed); runCurrent()
         assertEquals(BriefingPhase.Text, r.ui.phase)
         assertTrue(r.ui.lines.isNotEmpty())
-        assertEquals("a failed start never marks headlines as read", true, r.history.writes.isEmpty())
+        assertEquals("the text is shown, so the headlines count as read", listOf(listOf("h1", "h2", "h3")), r.history.writes)
     }
 
     @Test fun anErrorMidwayKeepsWhatWasAlreadyReadAndShowsText() = runTest {
@@ -321,7 +324,7 @@ class BriefingControllerTest {
         r.speaker.state.value = SpeakerState.Error(SpeakerFault.SpeechFailed); runCurrent()
         assertEquals(BriefingPhase.Text, r.ui.phase)
         assertTrue(r.ui.message.startsWith("Speech stopped unexpectedly"))
-        assertEquals(listOf(listOf("h1")), r.history.writes)
+        assertEquals("the first headline was still being spoken when it failed; the text shows them all", listOf(listOf("h1", "h2", "h3")), r.history.writes)
     }
 
     @Test fun voiceOffInSettingsShowsTextWithoutTouchingTheSpeaker() = runTest {
@@ -341,6 +344,25 @@ class BriefingControllerTest {
         assertTrue(r.ui.message.isNotEmpty())
         advanceTimeBy(8_000); runCurrent()
         assertEquals("a note does not linger while driving", BriefingPhase.Idle, r.ui.phase)
+    }
+
+    @Test fun textShownInGlanceDoesNotMarkHeadlinesRead() = runTest {
+        val r = rig(settings = AppSettings(voiceEnabled = false))
+        r.mode.value = UiMode.Glance; runCurrent()
+        r.c.onBrief(); runCurrent()
+        assertTrue(r.history.writes.isEmpty())
+    }
+
+    @Test fun theGlanceCaptionCarriesAShortLabelNeverTheScript() = runTest {
+        val r = rig()
+        r.c.onBrief(); runCurrent()
+        val q = r.speaker.spoken.indexOfFirst { it.kind == UtteranceKind.Quote }
+        r.speaker.at(q); runCurrent()
+        assertEquals("XEQT", r.ui.label)
+        assertTrue(r.ui.label.length < 12 && !r.ui.label.contains("dollars"))
+        val h = r.speaker.spoken.indexOfFirst { it.kind == UtteranceKind.Headline }
+        r.speaker.at(h); runCurrent()
+        assertEquals("Headlines", r.ui.label)
     }
 
     @Test fun glanceDoesNotStopTheBriefing() = runTest {
