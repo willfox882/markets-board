@@ -120,21 +120,24 @@ fun QuoteRow(
     }
 }
 
-/** Minimal row for Glance mode: name, price and change only. Not clickable. */
+/**
+ * Minimal row for Glance mode: name, price and change only. Not clickable. [compact] (used when six rows must share a short
+ * space, e.g. while a briefing caption is on screen) keeps the name to one line and steps the numbers down.
+ */
 @Composable
-fun GlanceRow(q: QuoteRowUi, modifier: Modifier = Modifier) {
+fun GlanceRow(q: QuoteRowUi, modifier: Modifier = Modifier, compact: Boolean = false) {
     val dim = q.dimmed || q.status is RowStatus.Stale
     val color = if (dim) Dash.dim else changeColor(q.changePct)
     val priceText = q.price?.let { formatPrice(it, q.decimals) }
-    Row(modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(vertical = if (compact) 2.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            q.name, color = Dash.text, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Medium, maxLines = 2,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 12.dp),
+            q.name, color = Dash.text, fontSize = if (compact) 18.sp else 22.sp, lineHeight = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.Medium,
+            maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 12.dp),
         )
         Column(horizontalAlignment = Alignment.End) {
             if (priceText != null) {
-                Numeral(priceText, q.currency, size = priceFontSizeSp(priceText).plus(6).sp, color = if (dim) Dash.dim else Dash.text)
-                ChangeLine(q.change, q.changePct, q.prevClose != null, q.decimals, color, Modifier.padding(top = 4.dp), size = 17)
+                Numeral(priceText, q.currency, size = priceFontSizeSp(priceText).plus(if (compact) -2 else 6).sp, color = if (dim) Dash.dim else Dash.text)
+                ChangeLine(q.change, q.changePct, q.prevClose != null, q.decimals, color, Modifier.padding(top = if (compact) 0.dp else 4.dp), size = if (compact) 14 else 17)
             } else if (q.status is RowStatus.Loading) {
                 Skeleton(110.dp, 30.dp)
             } else {

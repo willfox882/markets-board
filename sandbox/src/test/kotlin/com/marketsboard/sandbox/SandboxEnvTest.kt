@@ -40,8 +40,9 @@ class SandboxEnvTest {
         until { e.presenter.state.value.takeIf { st -> st.quotes.all { it.status == RowStatus.Fresh } && st.quotes.size == 2 } }
         e.fake.behavior = FakeBehavior.Offline
         e.presenter.onRefresh()
-        val off = until { e.presenter.state.value.takeIf { it.header.kind == LiveKind.Offline } }
-        assertTrue(off.quotes.all { it.status is RowStatus.Error && it.price != null }) // numbers kept, dimmed
+        // the header turns Offline as soon as a row fails; rows that failed keep their numbers, dimmed (a row can still be in flight, so not "all")
+        val off = until { e.presenter.state.value.takeIf { st -> st.header.kind == LiveKind.Offline && st.quotes.any { it.status is RowStatus.Error } } }
+        assertTrue(off.quotes.filter { it.status is RowStatus.Error }.all { it.price != null })
         e.fake.behavior = FakeBehavior.Normal
         // manual Refresh is debounced to one press per 5 s, so recover through the per-row Retry actions
         e.presenter.onRetry("XEQT.TO"); e.presenter.onRetry("MSFT")

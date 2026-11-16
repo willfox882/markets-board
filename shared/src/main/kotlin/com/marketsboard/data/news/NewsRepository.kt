@@ -104,6 +104,8 @@ class NewsRepository(
     private fun cacheKey(id: String) = "news.feed.$id"
 
     /** Wall time corrected by the last measured device clock error. */
+    override suspend fun refreshNow() = refresh()
+
     override fun correctedNowMs(): Long = clock.nowMs() + synchronized(lock) { serverOffsetMs }
 
     // ---- cache -------------------------------------------------------------------------------------------------

@@ -84,11 +84,13 @@ class RenderTest {
     @Test fun newsSettingsAndFlatMarketsAreGreyscale() {
         val flatMarkets = MarketsUiState(listOf(flat(41.87), flat(428.10)))
         for (tab in listOf(MbTab.News, MbTab.Settings, MbTab.Markets)) {
-            val p = pixels(810, 1440) { MarketsBoardRoot(flatMarkets, news, tab) }
+            // a parked unit with permission: the Settings tab has no warning, so no amber either
+            val parked = com.marketsboard.ui.settings.SettingsUiState(driving = com.marketsboard.core.DrivingStatus(com.marketsboard.ui.UiMode.Normal, com.marketsboard.core.DrivingReason.Parked, 0.0))
+            val p = pixels(810, 1440) { MarketsBoardRoot(flatMarkets, news, tab, settings = parked) }
             assertEquals("coloured pixels on $tab", 0, coloured(p))
         }
         // the Passenger mode switch in its checked state must not be green either
-        val on = pixels(810, 1440) { SettingsScreen(initialPassengerMode = true) }
+        val on = pixels(810, 1440) { SettingsScreen(com.marketsboard.ui.settings.SettingsUiState(settings = com.marketsboard.data.settings.AppSettings(passengerMode = true), driving = com.marketsboard.core.DrivingStatus(com.marketsboard.ui.UiMode.Normal, com.marketsboard.core.DrivingReason.Parked, 0.0))) }
         assertEquals("checked switch is coloured", 0, coloured(on))
     }
 

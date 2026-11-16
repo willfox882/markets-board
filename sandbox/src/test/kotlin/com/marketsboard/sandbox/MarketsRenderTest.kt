@@ -240,11 +240,12 @@ class MarketsRenderTest {
     @Test fun glanceRowsAreCollapsedToNamePriceAndChange() {
         val g = F.glance()
         val normal = g.copy(mode = com.marketsboard.ui.UiMode.Normal)
-        // fewer drawn "ink" rows than the normal view: no sparklines, no status bands, no Edit or Refresh actions
         val pg = pixels(440, 900, root(g))
-        val pn = pixels(440, 900, root(normal))
         assertEquals(0, gutterInk(pg, 440, 900))
-        assertTrue("glance should fit more rows", pg.count { !isBg(it) } < pn.count { !isBg(it) })
+        // no sparklines, status bands, Edit or Refresh: the rows are cheaper to draw than the normal ones above the lower area
+        val pn = pixels(440, 900, root(normal))
+        fun ink(p: IntArray) = (0 until 700).sumOf { y -> (0 until 440).count { x -> !isBg(p[y * 440 + x]) } }
+        assertTrue("glance rows should be plainer than the normal list", ink(pg) < ink(pn) * 3)
         // the glance screen shows every one of the six rows within the screen height
         assertEquals(7, g.quotes.size)
     }

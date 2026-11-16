@@ -51,9 +51,9 @@ class SandboxNewsEnvTest {
         e.newsPresenter.onOpen(s.rows.first().id)
         val d = until { e.newsPresenter.state.value.detail }
         assertEquals(s.rows.first().title, d.title)
-        e.uiMode.value = UiMode.Glance
+        e.driveAt(40.0)
         until { e.newsPresenter.state.value.takeIf { it.detail == null && it.rows.size == 3 } }
-        e.uiMode.value = UiMode.Normal
+        e.driveAt(0.0)
     }
 
     @Test fun offlineKeepsTheHeadlinesAndSaysSoThenRecovers() = env { e ->

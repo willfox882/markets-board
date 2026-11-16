@@ -13,6 +13,8 @@ import com.marketsboard.data.provider.MarketDataProvider
 import com.marketsboard.data.provider.StooqProvider
 import com.marketsboard.data.provider.YahooChartProvider
 import com.marketsboard.data.repo.QuoteRepository
+import com.marketsboard.data.settings.AppSettingsStore
+import com.marketsboard.data.settings.BriefingHistoryStore
 import com.marketsboard.data.store.EditResult
 import com.marketsboard.data.store.FileJsonCache
 import com.marketsboard.data.store.WatchlistStore
@@ -40,6 +42,10 @@ class AppGraph(filesDir: File, clock: Clock = Clock.System, rawFetcher: HttpFetc
     /** News: the editable feed list (`feeds.json`) and the repository that fetches, merges and caches headlines. */
     val feedStore = FeedStore(File(filesDir, "feeds.json"), clock)
     val news = NewsRepository(feedStore, watchlist.items, LoggingHttpFetcher(rawFetcher, fetchLog, "news", clock), cache, clock)
+
+    /** App settings (`settings.json`) and the headlines the briefing already read (`briefing-history.json`). */
+    val settingsStore = AppSettingsStore(File(filesDir, "settings.json"), clock)
+    val briefingHistory = BriefingHistoryStore(File(filesDir, "briefing-history.json"), clock)
 
     /** What the Markets presenter edits through: watchlist + quotes + the provider used for search and validation. */
     val data = MarketsData(watchlist, quotes, yahoo)

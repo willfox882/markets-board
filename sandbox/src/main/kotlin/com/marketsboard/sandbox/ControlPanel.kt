@@ -48,7 +48,14 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
     var skew by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1) }
     val active by env.gate.isActive.collectAsState()
-    val glance by env.uiMode.collectAsState()
+    val driving by env.driving.status.collectAsState()
+    val speedKmh by env.speedKmh.collectAsState()
+    val gpsLost by env.gpsLost.collectAsState()
+    val permission by env.location.flow.collectAsState()
+    val settings by env.settingsStore.settings.collectAsState()
+    var speakerMode by remember { mutableStateOf(env.speaker.mode) }
+    val spoken by env.speaker.log.collectAsState()
+    val briefing by env.briefing.state.collectAsState()
     val drop by env.dropSecondsLeft.collectAsState()
     val refreshing by env.quotes.refreshing.collectAsState()
 
@@ -82,7 +89,28 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
             colors = SliderDefaults.colors(thumbColor = Dash.text, activeTrackColor = Dash.text, inactiveTrackColor = Dash.line),
         )
         SwitchRow("Clock skew", skew, { skew = it; env.time.deviceSkewMs = if (it) -45 * 60_000L else 0L }, subtitle = "Device clock 45 min behind the data")
-        SwitchRow("Glance mode", glance == UiMode.Glance, { env.uiMode.value = if (it) UiMode.Glance else UiMode.Normal }, subtitle = "Minimal view: name, price, change only")
+        Hairline()
+        Label("Driving: ${speedKmh.toInt()} km/h")
+        Slider(
+            value = speedKmh.toFloat(), onValueChange = { env.driveAt(it.toDouble().let { v -> Math.round(v).toDouble() }) }, valueRange = 0f..130f,
+            colors = SliderDefaults.colors(thumbColor = Dash.text, activeTrackColor = Dash.text, inactiveTrackColor = Dash.line),
+        )
+        Text("Gate: ${driving.mode.name} (${driving.reason.name})", color = Dash.dim, fontSize = 13.sp)
+        SwitchRow("GPS lost", gpsLost, { env.gpsLost.value = it; env.feed() }, subtitle = "No fix: a locked screen stays locked")
+        SwitchRow("No location permission", !permission, { env.location.flow.value = !it }, subtitle = "The app cannot tell if the truck moves")
+        SwitchRow("Passenger mode", settings.passengerMode, { env.settingsPresenter.onPassengerMode(it) }, subtitle = "Also in Settings (blocked while locked)")
+        Label("Speaker")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FakeSpeakerMode.entries.forEach { m ->
+                Chip(speakerLabel(m), selected = m == speakerMode) { speakerMode = m; env.speaker.mode = m }
+            }
+        }
+        Text("Briefing: ${briefing.phase.name}${if (briefing.caption.isNotEmpty()) "  ${briefing.index}/${briefing.total}" else ""}", color = Dash.dim, fontSize = 13.sp)
+        if (spoken.isNotEmpty()) {
+            Label("Speaker log")
+            spoken.takeLast(6).forEach { Text(it, color = Dash.dim, fontSize = 12.sp, lineHeight = 16.sp) }
+        }
+        Hairline()
         SwitchRow("App active", active, { if (it) env.gate.resume() else env.gate.pause() }, subtitle = "Off pauses all refreshing, like a paused Activity")
         Label("Time speed")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -102,6 +130,13 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
         Text(if (refreshing) "Refreshing now" else "Idle", color = Dash.dim, fontSize = 13.sp)
         Text("Esc goes back.", color = Dash.faint, fontSize = 12.sp)
     }
+}
+
+private fun speakerLabel(m: FakeSpeakerMode) = when (m) {
+    FakeSpeakerMode.Ok -> "Speech ok"
+    FakeSpeakerMode.Unavailable -> "No engine"
+    FakeSpeakerMode.ErrorMidway -> "Error mid-way"
+    FakeSpeakerMode.FocusLost -> "Focus lost mid-way"
 }
 
 private fun newsLabel(b: FakeNewsBehavior) = when (b) {

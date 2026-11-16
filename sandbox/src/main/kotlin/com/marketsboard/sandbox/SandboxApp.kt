@@ -51,6 +51,9 @@ fun SandboxApp() {
     val env = remember { SandboxEnv(scope) }
     val state by env.presenter.state.collectAsState()
     val newsState by env.newsPresenter.state.collectAsState()
+    val briefing by env.briefing.state.collectAsState()
+    val settings by env.settingsPresenter.state.collectAsState()
+    val driving by env.driving.status.collectAsState()
     MarketsBoardTheme {
         CompositionLocalProvider(
             LocalBackHook provides { enabled, onBack -> SideEffect { backCallback = if (enabled) onBack else null } },
@@ -70,7 +73,11 @@ fun SandboxApp() {
                             .border(8.dp, Dash.surfaceHigh, RoundedCornerShape(22.dp))
                             .padding(8.dp).clip(RoundedCornerShape(14.dp)),
                     ) {
-                        MarketsBoardRoot(state, newsState, actions = env.presenter, newsActions = env.newsPresenter)
+                        MarketsBoardRoot(
+                            state, newsState, actions = env.presenter, mode = driving.mode, newsActions = env.newsPresenter,
+                            driving = driving, briefing = briefing, briefingActions = env.briefing,
+                            settings = settings, settingsActions = env.settingsPresenter,
+                        )
                     }
                 }
                 ControlPanel(env)

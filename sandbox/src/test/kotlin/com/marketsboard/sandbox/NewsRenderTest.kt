@@ -219,7 +219,8 @@ class NewsRenderTest {
         val stale = pixels(440, 900, root(F.newsStale()))
         // the toggle's hairline is the first long horizontal line below the header; rows start right after it
         fun hairlineY(p: IntArray) = (95 until 300).first { y -> (20 until 420).count { x -> val px = p[y * 440 + x]; abs(((px shr 16) and 0xFF) - 0x28) <= 3 && !isBg(px) } > 300 }
-        assertTrue("healthy hairline at ${hairlineY(healthy)}", hairlineY(healthy) < 160)
+        // 160 dp for the screen itself plus the 44 dp top strip that carries "Brief me"
+        assertTrue("healthy hairline at ${hairlineY(healthy)}", hairlineY(healthy) < 204)
         // stale adds at most one 24 dp line over the healthy layout (status and banner are folded into one row)
         assertTrue("stale ${hairlineY(stale)} vs healthy ${hairlineY(healthy)}", hairlineY(stale) - hairlineY(healthy) <= 26)
     }
