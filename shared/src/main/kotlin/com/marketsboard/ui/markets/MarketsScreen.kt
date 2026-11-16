@@ -3,6 +3,7 @@ package com.marketsboard.ui.markets
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,7 +56,7 @@ fun MarketsScreen(state: MarketsUiState, modifier: Modifier = Modifier, actions:
     val overlay = state.detail != null || state.add != null
     Box(modifier.fillMaxSize()) {
         // The list is NOT composed under an overlay: nothing behind it can receive a touch or a screen-reader focus.
-        if (!overlay) WatchlistPage(state, actions, listState)
+        if (!overlay) { if (state.mode == UiMode.Glance) GlancePage(state) else WatchlistPage(state, actions, listState) }
         state.detail?.let { DetailScreen(it, actions, Modifier.fillMaxSize().background(Dash.bg).consumeTouches()) }
         state.add?.let { AddSheet(it, actions, Modifier.fillMaxSize().background(Dash.bg).consumeTouches()) }
     }
@@ -143,6 +144,38 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listSt
         item { Spacer(Modifier.height(28.dp)) }
     }
 }
+
+/**
+ * Glance (the truck moves): the title, the status line, then at most [GLANCE_MAX] rows of name, price and change, large and
+ * evenly spaced so up to six fit without scrolling. Nothing is tappable. A quiet line says how many more are on the full list.
+ */
+@Composable
+private fun GlancePage(state: MarketsUiState) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Column(Modifier.padding(top = 12.dp)) {
+            ScreenTitle("Markets")
+            HeaderStatus(state.header)
+        }
+        if (state.clockSkew) ClockBanner()
+        Hairline(Modifier.padding(top = 14.dp))
+        if (state.quotes.isEmpty()) {
+            Text("No symbols yet", color = Dash.dim, fontSize = 18.sp, modifier = Modifier.padding(vertical = 40.dp))
+        } else {
+            val shown = state.quotes.take(GLANCE_MAX)
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val more = state.quotes.size - shown.size
+                val avail = maxHeight - if (more > 0) 34.dp else 0.dp
+                val h = (avail / shown.size).coerceIn(68.dp, 112.dp)
+                Column {
+                    shown.forEach { q -> Column { GlanceRow(q, Modifier.height(h - 1.dp)); Hairline() } }
+                    if (more > 0) Text("$more more on the full list", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                }
+            }
+        }
+    }
+}
+
+private const val GLANCE_MAX = 6
 
 /** "● Live  ·  Updated 12:41 PM ET": dot colour carries the state (green live, grey closed or loading, amber otherwise). */
 @Composable

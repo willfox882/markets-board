@@ -17,6 +17,8 @@ import com.marketsboard.data.repo.QuoteState
 import com.marketsboard.data.store.AddOutcome
 import com.marketsboard.data.store.Symbols
 import com.marketsboard.refresh.Refresher
+import com.marketsboard.ui.GlanceRule
+import com.marketsboard.ui.MarketsAct
 import com.marketsboard.ui.UiMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -76,6 +78,11 @@ class MarketsPresenter(
     private val nav = MutableStateFlow(Nav())
     private var searchJob: Job? = null
     private var detailJob: Job? = null
+    private var submitJob: Job? = null
+
+    /** What the user had typed when Glance closed the sheets. Kept in memory only, offered again when the sheet or dialog reopens. */
+    private data class Draft(val addQuery: String = "", val rename: RenameUi? = null)
+    private var draft = Draft()
 
     private val core = combine(
         data.watchlist.items, data.quotes.states, data.watchlist.persistError, nav,
@@ -89,6 +96,8 @@ class MarketsPresenter(
         .stateIn(scope, SharingStarted.Eagerly, MarketsUiState(emptyList()))
 
     init {
+        // Glance (the truck moves) closes every overlay for good, keeping only the typed text in memory.
+        scope.launch { mode.collect { if (it == UiMode.Glance) enterGlance() } }
         // A detail view of an instrument that left the list (removed, replaced) closes itself.
         scope.launch {
             data.watchlist.items.collect { list ->
@@ -96,6 +105,20 @@ class MarketsPresenter(
                 nav.update { n -> if (n.detail != null && n.detail.symbol !in syms) n.copy(detail = null) else n }
             }
         }
+    }
+
+    /**
+     * Closes the editor, detail, sheets and dialogs, cancels a search, a detail fetch and an add that is still running (an
+     * add is all or nothing in the store, so no half-added item can exist), and keeps what was typed in memory.
+     */
+    private fun enterGlance() {
+        val n = nav.value
+        val query = n.add?.takeIf { it.replacing == null }?.query.orEmpty()
+        if (query.isNotBlank() || n.rename != null) draft = Draft(query.ifBlank { draft.addQuery }, n.rename ?: draft.rename)
+        searchJob?.cancel()
+        detailJob?.cancel()
+        submitJob?.cancel()
+        nav.value = Nav()
     }
 
     // ---- state building ----------------------------------------------------------------------------------------
@@ -139,7 +162,7 @@ class MarketsPresenter(
 
     // ---- list actions -------------------------------------------------------------------------------------------
 
-    override fun onBack() {
+    override fun onBack() = guarded(MarketsAct.Back) {
         val n = nav.value
         when {
             n.rename != null -> onRenameCancel()
@@ -150,47 +173,56 @@ class MarketsPresenter(
         }
     }
 
-    override fun onRefresh() = refresher.refreshAll()
+    override fun onRefresh() = guarded(MarketsAct.Refresh) { refresher.refreshAll() }
 
-    override fun onRetry(symbol: String) = refresher.refresh(symbol)
+    override fun onRetry(symbol: String) = guarded(MarketsAct.Retry) { refresher.refresh(symbol) }
 
     private val glance: Boolean get() = mode.value == UiMode.Glance
 
-    override fun onToggleEdit() { if (!glance) nav.update { it.copy(editMode = !it.editMode) } }
+    /** Every action goes through here: in Glance a [GlanceRule.Blocked] action does nothing at all. */
+    private inline fun guarded(act: MarketsAct, block: () -> Unit) {
+        if (glance && act.glance == GlanceRule.Blocked) return
+        block()
+    }
 
-    override fun onMove(symbol: String, delta: Int) {
+    override fun onToggleEdit() = guarded(MarketsAct.ToggleEdit) { nav.update { it.copy(editMode = !it.editMode) } }
+
+    override fun onMove(symbol: String, delta: Int) = guarded(MarketsAct.Move) {
         val list = data.watchlist.items.value
         val from = list.indexOfFirst { it.symbol == symbol }
         val to = from + delta
-        if (from < 0 || to !in list.indices) return
+        if (from < 0 || to !in list.indices) return@guarded
         scope.launch { withContext(io) { data.watchlist.move(from, to) } }
     }
 
     // ---- rename, remove -----------------------------------------------------------------------------------------
 
-    override fun onAskRename(symbol: String) {
-        val item = data.watchlist.items.value.firstOrNull { it.symbol == symbol } ?: return
-        nav.update { it.copy(rename = RenameUi(symbol, item.displayName ?: UiMapper.nameOf(item, null), item.name)) }
+    override fun onAskRename(symbol: String) = guarded(MarketsAct.AskRename) {
+        val item = data.watchlist.items.value.firstOrNull { it.symbol == symbol } ?: return@guarded
+        // Text typed before Glance closed the dialog comes back (in memory only), once.
+        val kept = draft.rename?.takeIf { it.symbol == symbol }
+        draft = draft.copy(rename = null)
+        nav.update { it.copy(rename = RenameUi(symbol, kept?.current ?: item.displayName ?: UiMapper.nameOf(item, null), item.name)) }
     }
 
-    override fun onRenameChange(text: String) = nav.update { n -> n.copy(rename = n.rename?.copy(current = text.take(40))) }
+    override fun onRenameChange(text: String) = guarded(MarketsAct.RenameChange) { nav.update { n -> n.copy(rename = n.rename?.copy(current = text.take(40))) } }
 
-    override fun onRenameConfirm() {
-        val r = nav.value.rename ?: return
+    override fun onRenameConfirm() = guarded(MarketsAct.RenameConfirm) {
+        val r = nav.value.rename ?: return@guarded
         nav.update { it.copy(rename = null) }
         // Blank, or the original name, clears the override.
         val name = r.current.trim().takeIf { it.isNotEmpty() && it != r.original }
         scope.launch { withContext(io) { data.watchlist.rename(r.symbol, name) } }
     }
 
-    override fun onRenameCancel() = nav.update { it.copy(rename = null) }
+    override fun onRenameCancel() = guarded(MarketsAct.RenameCancel) { nav.update { it.copy(rename = null) } }
 
-    override fun onAskRemove(symbol: String) = nav.update { it.copy(confirmRemove = symbol) }
+    override fun onAskRemove(symbol: String) = guarded(MarketsAct.AskRemove) { nav.update { it.copy(confirmRemove = symbol) } }
 
-    override fun onCancelRemove() = nav.update { it.copy(confirmRemove = null) }
+    override fun onCancelRemove() = guarded(MarketsAct.CancelRemove) { nav.update { it.copy(confirmRemove = null) } }
 
-    override fun onConfirmRemove() {
-        val sym = nav.value.confirmRemove ?: return
+    override fun onConfirmRemove() = guarded(MarketsAct.ConfirmRemove) {
+        val sym = nav.value.confirmRemove ?: return@guarded
         nav.update { it.copy(confirmRemove = null) }
         scope.launch {
             withContext(io) { data.remove(sym) }
@@ -200,26 +232,25 @@ class MarketsPresenter(
 
     // ---- detail -------------------------------------------------------------------------------------------------
 
-    override fun onOpen(symbol: String) {
-        if (glance) return
-        if (data.watchlist.items.value.none { it.symbol == symbol }) return
+    override fun onOpen(symbol: String) = guarded(MarketsAct.Open) {
+        if (data.watchlist.items.value.none { it.symbol == symbol }) return@guarded
         nav.update { it.copy(detail = DetailSel(symbol, ChartRange.D1)) }
         loadRange(symbol, ChartRange.D1, force = false)
     }
 
-    override fun onCloseDetail() {
+    override fun onCloseDetail() = guarded(MarketsAct.CloseDetail) {
         detailJob?.cancel()
         nav.update { it.copy(detail = null) }
     }
 
-    override fun onSelectRange(range: ChartRange) {
-        val d = nav.value.detail ?: return
+    override fun onSelectRange(range: ChartRange) = guarded(MarketsAct.SelectRange) {
+        val d = nav.value.detail ?: return@guarded
         nav.update { it.copy(detail = d.copy(range = range)) }
         loadRange(d.symbol, range, force = false)
     }
 
-    override fun onRetryRange() {
-        val d = nav.value.detail ?: return
+    override fun onRetryRange() = guarded(MarketsAct.RetryRange) {
+        val d = nav.value.detail ?: return@guarded
         loadRange(d.symbol, d.range, force = true)
     }
 
@@ -238,26 +269,31 @@ class MarketsPresenter(
 
     // ---- add / replace ------------------------------------------------------------------------------------------
 
-    override fun onAddOpen() { if (!glance) nav.update { it.copy(add = AddState()) } }
+    override fun onAddOpen() = guarded(MarketsAct.AddOpen) {
+        // Text typed before Glance closed the sheet comes back (in memory only), once, and searches again.
+        val kept = draft.addQuery
+        draft = draft.copy(addQuery = "")
+        nav.update { it.copy(add = AddState()) }
+        if (kept.isNotBlank()) onQueryChange(kept)
+    }
 
-    override fun onReplaceOpen(symbol: String) {
-        if (glance) return
-        if (data.watchlist.items.value.none { it.symbol == symbol }) return
+    override fun onReplaceOpen(symbol: String) = guarded(MarketsAct.ReplaceOpen) {
+        if (data.watchlist.items.value.none { it.symbol == symbol }) return@guarded
         nav.update { it.copy(add = AddState(replacing = symbol)) }
     }
 
-    override fun onAddClose() {
+    override fun onAddClose() = guarded(MarketsAct.AddClose) {
         searchJob?.cancel()
         nav.update { it.copy(add = null) }
     }
 
-    override fun onQueryChange(text: String) {
-        val a = nav.value.add ?: return
+    override fun onQueryChange(text: String) = guarded(MarketsAct.QueryChange) {
+        val a = nav.value.add ?: return@guarded
         val q = text.take(64)
         nav.update { it.copy(add = a.copy(query = q, message = null, searching = false, results = if (q.isBlank()) emptyList() else a.results, searchNote = "")) }
         searchJob?.cancel()
         val term = q.trim()
-        if (term.isEmpty()) return
+        if (term.isEmpty()) return@guarded
         searchJob = scope.launch {
             delay(searchDebounceMs)
             updateAdd { it.copy(searching = true) }
@@ -292,10 +328,10 @@ class MarketsPresenter(
 
     private fun updateAdd(f: (AddState) -> AddState) = nav.update { n -> n.add?.let { n.copy(add = f(it)) } ?: n }
 
-    override fun onPickResult(symbol: String) {
-        val a = nav.value.add ?: return
-        if (a.busy) return
-        scope.launch { submit(symbol, anyway = false, closeOnAdded = a.replacing != null) }
+    override fun onPickResult(symbol: String) = guarded(MarketsAct.PickResult) {
+        val a = nav.value.add ?: return@guarded
+        if (a.busy) return@guarded
+        submitJob = scope.launch { submit(symbol, anyway = false, closeOnAdded = a.replacing != null) }
     }
 
     /**
@@ -303,13 +339,13 @@ class MarketsPresenter(
      * search result with exactly that symbol. Anything else (spaces, lowercase: it is a name, not a ticker) picks the
      * first result of the current search, or explains what to do. A guessed ticker is never added silently.
      */
-    override fun onSubmitTyped() {
-        val a = nav.value.add ?: return
-        if (a.busy) return
+    override fun onSubmitTyped() = guarded(MarketsAct.SubmitTyped) {
+        val a = nav.value.add ?: return@guarded
+        if (a.busy) return@guarded
         val typed = a.query.trim()
         if (typed.isEmpty()) {
             onAddClose()
-            return
+            return@guarded
         }
         val fresh = a.resultsFor == typed && a.results.isNotEmpty()
         val target: String? = when {
@@ -322,16 +358,16 @@ class MarketsPresenter(
             val text = (if (pending) "Still searching. " else "") +
                 "Pick a result from the list, or type the full symbol in capital letters, like XEQT.TO."
             updateAdd { it.copy(message = AddMessage(text, warn = false)) }
-            return
+            return@guarded
         }
-        scope.launch { submit(target, anyway = false, closeOnAdded = true) }
+        submitJob = scope.launch { submit(target, anyway = false, closeOnAdded = true) }
     }
 
-    override fun onAddAnyway() {
-        val a = nav.value.add ?: return
-        val sym = a.message?.addAnywaySymbol ?: return
-        if (a.busy) return
-        scope.launch { submit(sym, anyway = true, closeOnAdded = true) }
+    override fun onAddAnyway() = guarded(MarketsAct.AddAnyway) {
+        val a = nav.value.add ?: return@guarded
+        val sym = a.message?.addAnywaySymbol ?: return@guarded
+        if (a.busy) return@guarded
+        submitJob = scope.launch { submit(sym, anyway = true, closeOnAdded = true) }
     }
 
     private suspend fun submit(raw: String, anyway: Boolean, closeOnAdded: Boolean) {

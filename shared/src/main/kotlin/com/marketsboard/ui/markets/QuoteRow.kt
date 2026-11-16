@@ -126,7 +126,7 @@ fun GlanceRow(q: QuoteRowUi, modifier: Modifier = Modifier) {
     val dim = q.dimmed || q.status is RowStatus.Stale
     val color = if (dim) Dash.dim else changeColor(q.changePct)
     val priceText = q.price?.let { formatPrice(it, q.decimals) }
-    Row(modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             q.name, color = Dash.text, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Medium, maxLines = 2,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 12.dp),

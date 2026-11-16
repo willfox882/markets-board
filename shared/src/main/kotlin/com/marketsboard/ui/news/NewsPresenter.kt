@@ -2,6 +2,8 @@ package com.marketsboard.ui.news
 
 import com.marketsboard.data.news.NewsSource
 import com.marketsboard.refresh.NewsRefresher
+import com.marketsboard.ui.GlanceRule
+import com.marketsboard.ui.NewsAct
 import com.marketsboard.ui.UiMode
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
@@ -37,20 +39,26 @@ class NewsPresenter(
 
     private val glance: Boolean get() = mode.value == UiMode.Glance
 
+    /** Every action goes through here: in Glance a blocked action does nothing at all (the truck moves, so no forced fetch either). */
+    private inline fun guarded(act: NewsAct, block: () -> Unit) {
+        if (glance && act.glance == GlanceRule.Blocked) return
+        block()
+    }
+
     init {
         // The glance view never shows an article: entering it closes any open one.
         scope.launch { mode.collect { if (it == UiMode.Glance) nav.update { n -> n.copy(openId = null) } } }
     }
 
-    override fun onBack() { if (nav.value.openId != null) onCloseDetail() }
+    override fun onBack() = guarded(NewsAct.Back) { if (nav.value.openId != null) onCloseDetail() }
 
-    override fun onRefresh() = refresher.refreshNow()
+    override fun onRefresh() = guarded(NewsAct.Refresh) { refresher.refreshNow() }
 
-    override fun onRetry() = refresher.refreshNow()
+    override fun onRetry() = guarded(NewsAct.Retry) { refresher.refreshNow() }
 
-    override fun onSetFilter(filter: NewsFilter) { if (!glance) nav.update { it.copy(filter = filter) } }
+    override fun onSetFilter(filter: NewsFilter) = guarded(NewsAct.SetFilter) { nav.update { it.copy(filter = filter) } }
 
-    override fun onOpen(id: String) { if (!glance) nav.update { it.copy(openId = id) } }
+    override fun onOpen(id: String) = guarded(NewsAct.Open) { nav.update { it.copy(openId = id) } }
 
-    override fun onCloseDetail() { nav.update { it.copy(openId = null) } }
+    override fun onCloseDetail() = guarded(NewsAct.CloseDetail) { nav.update { it.copy(openId = null) } }
 }

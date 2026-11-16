@@ -46,6 +46,8 @@ data class BriefingInput(
     val offline: Boolean = false,
     val alreadySpoken: Set<String> = emptySet(),
     val headlinesFromCache: Boolean = false,
+    /** False when the user turned headlines off: no headline section at all (not even "No new headlines."). */
+    val includeHeadlines: Boolean = true,
 )
 
 /**
@@ -103,7 +105,7 @@ object Briefings {
             else -> priced.map { Utterance(quoteSentence(it), UtteranceKind.Quote, 350) } +
                 unpriced.map { Utterance("No price available for ${spokenName(it)}.", UtteranceKind.Note, 300) }
         }
-        val picked = pickHeadlines(input.headlines, input.nowMs, input.alreadySpoken)
+        val picked = if (input.includeHeadlines) pickHeadlines(input.headlines, input.nowMs, input.alreadySpoken) else emptyList()
         val headLines = picked.map { Utterance(shortTitle(it.title) + ".", UtteranceKind.Headline, 450) }
         val noNews = Utterance("No new headlines.", UtteranceKind.Note, 300)
         val cacheNote = Utterance("Headlines may be out of date.", UtteranceKind.Caveat, 300)
@@ -111,6 +113,7 @@ object Briefings {
         var q = quoteLines
         var h = headLines
         fun section(): List<Utterance> = when {
+            !input.includeHeadlines -> emptyList()
             h.isEmpty() -> listOf(noNews)
             input.headlinesFromCache -> listOf(cacheNote, Utterance(HEADLINES_INTRO, UtteranceKind.HeadlinesIntro, 300)) + h
             else -> listOf(Utterance(HEADLINES_INTRO, UtteranceKind.HeadlinesIntro, 300)) + h
