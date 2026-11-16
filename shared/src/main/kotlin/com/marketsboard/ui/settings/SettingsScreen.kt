@@ -56,7 +56,7 @@ fun SettingsScreen(modifier: Modifier = Modifier, initialPassengerMode: Boolean 
                 PillButton("Check connection", {}, Modifier.fillMaxWidth(), kind = PillKind.Secondary)
                 Text(
                     "Placeholder controls. Nothing here is saved yet.",
-                    color = Dash.faint, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 12.dp, bottom = 20.dp),
+                    color = Dash.dim, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 12.dp, bottom = 20.dp),
                 )
             }
         }

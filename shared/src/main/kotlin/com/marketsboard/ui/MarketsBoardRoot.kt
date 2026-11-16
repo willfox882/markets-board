@@ -21,21 +21,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marketsboard.ui.markets.MarketsScreen
+import com.marketsboard.ui.markets.MarketsUiState
 import com.marketsboard.ui.news.NewsScreen
+import com.marketsboard.ui.news.NewsUiState
 import com.marketsboard.ui.settings.SettingsScreen
 
 enum class MbTab(val label: String) { Markets("MARKETS"), News("NEWS"), Settings("SETTINGS") }
 
 /** App shell: one screen at a time above a hairline-topped bottom bar with a 2 dp white indicator. */
 @Composable
-fun MarketsBoardRoot(initialTab: MbTab = MbTab.Markets) {
+fun MarketsBoardRoot(
+    markets: MarketsUiState,
+    news: NewsUiState,
+    initialTab: MbTab = MbTab.Markets,
+    onEditWatchlist: () -> Unit = {},
+) {
     var tab by remember { mutableStateOf(initialTab) }
     DesignScale {
         Column(Modifier.fillMaxSize().background(Dash.bg)) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
-                    MbTab.Markets -> MarketsScreen()
-                    MbTab.News -> NewsScreen()
+                    MbTab.Markets -> MarketsScreen(markets, onEdit = onEditWatchlist)
+                    MbTab.News -> NewsScreen(news)
                     MbTab.Settings -> SettingsScreen()
                 }
             }
@@ -50,7 +57,7 @@ fun MarketsBoardRoot(initialTab: MbTab = MbTab.Markets) {
                         if (selected) Box(Modifier.align(Alignment.TopCenter).width(28.dp).height(2.dp).background(Dash.text))
                         Text(
                             t.label,
-                            color = if (selected) Dash.text else Dash.faint,
+                            color = if (selected) Dash.text else Dash.dim,
                             fontSize = 12.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.6.sp,
                         )
                     }

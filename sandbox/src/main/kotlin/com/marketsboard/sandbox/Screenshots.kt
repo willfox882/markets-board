@@ -3,6 +3,7 @@ package com.marketsboard.sandbox
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
+import com.marketsboard.demo.DemoData
 import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 import com.marketsboard.ui.MbTab
@@ -20,7 +21,7 @@ fun main(args: Array<String>) {
 
     fun shot(name: String, w: Int, h: Int, tab: MbTab) {
         val scene = ImageComposeScene(width = w, height = h, density = Density(1f)) {
-            MarketsBoardTheme { MarketsBoardRoot(tab) }
+            MarketsBoardTheme { MarketsBoardRoot(DemoData.markets, DemoData.news, tab) }
         }
         for (i in 0 until 8) scene.render(i * 120_000_000L) // let animations settle
         val img = scene.render(2_000_000_000L)

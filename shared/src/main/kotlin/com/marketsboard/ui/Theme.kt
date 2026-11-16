@@ -12,7 +12,7 @@ import androidx.compose.ui.text.font.FontFamily
 
 /**
  * Design tokens. Matte near-black, hairlines instead of boxes, white as the primary accent.
- * Colour is reserved for meaning: green = gain, red = loss (price change only), amber = stale/offline.
+ * Colour is reserved for meaning: green = gain, red = loss (price change only, via changeColor), amber = stale/offline/error.
  */
 object Dash {
     val bg = Color(0xFF0A0A0B)
@@ -26,10 +26,12 @@ object Dash {
     val amber = Color(0xFFE9B25A)
     val red = Color(0xFFEF6A64)
     val onLight = Color(0xFF0A0A0B)
+    /** Idle bar fill in bar charts (decorative). */
+    val barIdle = Color(0xFF34343A)
 }
 
 /** Tabular figures so live numbers don't jitter as digits change. */
-val Tabular = TextStyle(fontFeatureSettings = "tnum")
+val Tabular: TextStyle get() = TextStyle(fontFamily = DashFonts.family, fontFeatureSettings = "tnum")
 
 /** Platform code sets this at startup (Android: res/font, desktop: classpath font/). */
 object DashFonts {
@@ -66,7 +68,7 @@ fun MarketsBoardTheme(content: @Composable () -> Unit) {
             onSecondaryContainer = Dash.text,
             outline = Dash.line,
             outlineVariant = Dash.line,
-            error = Dash.red,
+            error = Dash.amber,
         ),
         typography = typography(family),
     ) {

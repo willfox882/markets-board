@@ -35,6 +35,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.marketsboard.demo.DemoData
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.LocalBackHook
 import com.marketsboard.ui.MarketsBoardRoot
@@ -49,7 +50,7 @@ fun SandboxApp() {
             LocalBackHook provides { enabled, onBack -> SideEffect { backCallback = if (enabled) onBack else null } },
         ) {
             Row(
-                Modifier.fillMaxSize().background(Color(0xFF000000)).onKeyEvent {
+                Modifier.fillMaxSize().background(Color.Black).onKeyEvent {
                     val cb = backCallback
                     if (it.key == Key.Escape && it.type == KeyEventType.KeyUp && cb != null) { cb(); true } else false
                 },
@@ -62,7 +63,7 @@ fun SandboxApp() {
                             .border(8.dp, Dash.surfaceHigh, RoundedCornerShape(22.dp))
                             .padding(8.dp).clip(RoundedCornerShape(14.dp)),
                     ) {
-                        MarketsBoardRoot()
+                        MarketsBoardRoot(DemoData.markets, DemoData.news)
                     }
                 }
                 ControlPanel()

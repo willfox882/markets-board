@@ -1,7 +1,7 @@
 # Progress
 
 ## Status
-M0 (scaffold, design system, tabbed shell, sandbox, docs, CI) is complete. Next: M1.
+M0 (scaffold, design system, tabbed shell, sandbox, docs, CI) is complete and audited (findings fixed, see below). Next: M1.
 
 ## Done (M0)
 - Gradle project mirroring Truck Dash: `:app`, `:sandbox`, shared source dir, wrapper 8.14.3, version catalog (no Room/KSP/lifecycle).
@@ -10,8 +10,17 @@ M0 (scaffold, design system, tabbed shell, sandbox, docs, CI) is complete. Next:
 - Markets placeholder is watchlist-first per the owner's requirement: exactly XEQT.TO (CAD) and MSFT (USD), native currency beside the price, sparklines, green gain / red loss, inert "Edit" action in the section header.
 - Android app: MainActivity (portrait, keep screen on, immersive, Geist, back hook), Application, manifest (INTERNET + ACCESS_NETWORK_STATE), line-chart adaptive + monochrome icon, dark theme, allowBackup=false.
 - Sandbox: window (9:16 frame + minimal panel), headless screenshots (810x1440 per tab), `sandboxJar` (Windows + Linux Skia), `run-sandbox.bat`.
-- Tests: `FormatTest` (app, 7 tests) and `SandboxSmokeTest` (sandbox, 3 tests).
+- Tests: 17 in `app` (Format, Theme, DemoData, RepoHygiene) and 5 in `sandbox` (RenderTest).
 - CI workflow uploads APK, sandbox jar + bat, screenshots.
+
+## M0 audit fixes
+- `Tabular` is a getter carrying `DashFonts.family` (numerals were falling back to the platform font).
+- Price column no longer fixed width: name column takes the leftover width, numeral steps down 24/22/20/18 sp by length, unit never wraps; render test at 440 dp proves it.
+- Text, sign and colour come from one BigDecimal rounding step (no "-0.00", no coloured zero).
+- Switch uses white track / dark thumb; green and red are used only by `changeColor`; destructive red (Danger pill, dialog danger) removed; error colour is amber.
+- Screens take UI models (`QuoteRowUi`, `HeadlineUi`, `*UiState`); `DemoData` (package `demo`) is supplied by callers only.
+- Immersive mode re-applied on window focus. Readable secondary text uses `Dash.dim`; `Dash.faint` remains only for the decorative chevron and disabled/decorative elements. `Label` default is now dim.
+- Docs/CI: no macOS claim, no model name in CLAUDE.md, lint report and screenshots uploaded (screenshots fail if missing), `Locale.US` in charts. Repo hygiene test added.
 
 ## Next
 - **M1** data layer: models, `MarketDataProvider` (Yahoo chart primary, Stooq CSV fallback), HTTP client, file cache with TTL + stale-while-revalidate, fixtures, parsing tests, JSON-file watchlist store with the two defaults (XEQT.TO, MSFT) and a never-lose-user-edits migration policy.

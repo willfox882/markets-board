@@ -1,4 +1,4 @@
-# Desktop sandbox (Windows / Linux / macOS)
+# Desktop sandbox (Windows / Linux)
 
 Runs the **real** shared Markets Board UI on a desktop. `shared/` code is compiled into both the Android app and the sandbox.
 
@@ -7,7 +7,7 @@ Runs the **real** shared Markets Board UI on a desktop. `shared/` code is compil
 2. Put `markets-board-sandbox.jar` and `run-sandbox.bat` in one folder and double-click the `.bat` (or `java -jar markets-board-sandbox.jar`).
 
 Build it yourself: `./gradlew :sandbox:sandboxJar` -> `sandbox/build/libs/markets-board-sandbox.jar` (dev run: `./gradlew :sandbox:run`).
-The jar bundles the Windows and Linux Skia renderers, so it runs on Windows with just `java -jar`.
+The jar bundles the Windows and Linux Skia renderers only (no macOS), so it runs on Windows and Linux with just `java -jar`. `./gradlew :sandbox:run` uses the host OS renderer.
 
 ## What you get (M0)
 - Left: the 14.4" portrait head unit as a 9:16 frame (resizable window). Right: a minimal control panel (grows with M1 to M3: fake provider, stale/offline switches).

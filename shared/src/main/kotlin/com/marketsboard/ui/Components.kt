@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -36,7 +37,7 @@ import androidx.compose.ui.unit.sp
 
 /** Small uppercase caption used above values and as section headers. */
 @Composable
-fun Label(text: String, modifier: Modifier = Modifier, color: Color = Dash.faint) {
+fun Label(text: String, modifier: Modifier = Modifier, color: Color = Dash.dim) {
     Text(text.uppercase(), color = color, fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.3.sp, modifier = modifier)
 }
 
@@ -64,14 +65,26 @@ fun DashCard(modifier: Modifier = Modifier, padding: Int = 18, content: @Composa
 
 /** A large value with a small unit, e.g. "12.4 km". Light weight numerals are the signature of the UI. */
 @Composable
-fun Numeral(value: String, unit: String = "", size: TextUnit = 30.sp, color: Color = Dash.text, modifier: Modifier = Modifier) {
+fun Numeral(
+    value: String,
+    unit: String = "",
+    size: TextUnit = 30.sp,
+    color: Color = Dash.text,
+    modifier: Modifier = Modifier,
+    /** Layout reports for tests (wrap / clip checks); no-ops in production. */
+    onValueLayout: (TextLayoutResult) -> Unit = {},
+    onUnitLayout: (TextLayoutResult) -> Unit = {},
+) {
     Row(modifier, verticalAlignment = Alignment.Bottom) {
         Text(
             value, color = color, fontSize = size, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
-            letterSpacing = (-0.5).sp, style = Tabular,
+            letterSpacing = (-0.5).sp, style = Tabular, onTextLayout = onValueLayout,
         )
         if (unit.isNotEmpty()) {
-            Text(" $unit", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(bottom = (size.value * 0.12f).dp))
+            Text(
+                " $unit", color = Dash.dim, fontSize = 13.sp, maxLines = 1, softWrap = false, onTextLayout = onUnitLayout,
+                modifier = Modifier.padding(bottom = (size.value * 0.12f).dp),
+            )
         }
     }
 }
@@ -108,19 +121,17 @@ fun StatGrid(items: List<StatItem>, modifier: Modifier = Modifier, columns: Int 
     }
 }
 
-enum class PillKind { Primary, Secondary, Danger }
+enum class PillKind { Primary, Secondary }
 
 @Composable
 fun PillButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, kind: PillKind = PillKind.Secondary, small: Boolean = false) {
     val bg = when (kind) {
         PillKind.Primary -> Dash.text
         PillKind.Secondary -> Dash.surfaceHigh
-        PillKind.Danger -> Dash.surfaceHigh
     }
     val fg = when (kind) {
         PillKind.Primary -> Dash.onLight
         PillKind.Secondary -> Dash.text
-        PillKind.Danger -> Dash.red
     }
     Surface(
         color = bg, shape = RoundedCornerShape(50), onClick = onClick, modifier = modifier,
@@ -153,7 +164,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, action: (@Compos
 
 @Composable
 fun dashSwitchColors() = SwitchDefaults.colors(
-    checkedThumbColor = Color.White, checkedTrackColor = Dash.green, checkedBorderColor = Color.Transparent,
+    checkedThumbColor = Dash.onLight, checkedTrackColor = Dash.text, checkedBorderColor = Color.Transparent,
     uncheckedThumbColor = Dash.dim, uncheckedTrackColor = Dash.surfaceHigh, uncheckedBorderColor = Dash.line,
 )
 
@@ -166,7 +177,7 @@ fun dashCheckboxColors() = CheckboxDefaults.colors(
 fun dashFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = Dash.text, unfocusedTextColor = Dash.text,
     focusedBorderColor = Dash.text, unfocusedBorderColor = Dash.line,
-    focusedLabelColor = Dash.dim, unfocusedLabelColor = Dash.faint,
+    focusedLabelColor = Dash.dim, unfocusedLabelColor = Dash.dim,
     cursorColor = Dash.text,
 )
 
@@ -178,7 +189,6 @@ fun DashDialog(
     confirmText: String,
     onConfirm: () -> Unit,
     dismissText: String = "Cancel",
-    danger: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     AlertDialog(
@@ -187,19 +197,19 @@ fun DashDialog(
         shape = RoundedCornerShape(26.dp),
         title = { Text(title, color = Dash.text, fontWeight = FontWeight.Medium, fontSize = 20.sp) },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { content() } },
-        confirmButton = { TextAction(confirmText, onConfirm, color = if (danger) Dash.red else Dash.text) },
+        confirmButton = { TextAction(confirmText, onConfirm, color = Dash.text) },
         dismissButton = { TextAction(dismissText, onDismiss) },
     )
 }
 
 /** Gain = green, loss = red, flat or unknown = dim. The only place price-change colour is decided. */
-fun changeColor(pct: Double): Color = when (changeSign(pct)) {
+fun changeColor(pct: Double, decimals: Int = 2): Color = when (changeSign(pct, decimals)) {
     1 -> Dash.green
     -1 -> Dash.red
     else -> Dash.dim
 }
 
-/** Settings-style row: title + optional subtitle on the left, a switch on the right. 64 dp tall for gloved/bumpy use. */
+/** Settings-style row: title + optional subtitle on the left, a switch on the right. 68 dp tall for bumpy-road use. */
 @Composable
 fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, subtitle: String = "") {
     Row(modifier.fillMaxWidth().height(68.dp), verticalAlignment = Alignment.CenterVertically) {

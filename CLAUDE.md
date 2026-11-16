@@ -41,5 +41,4 @@ Live market/news hosts are NOT reachable from the container: providers are teste
 - Never put a model name anywhere in the repo.
 
 ## Git
-Branch `main`; push with `git -c push.negotiate=true push origin main`. Commit trailer (last lines):
-`Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` then `Claude-Session: https://claude.ai/code/session_018sQ45MNG5zi6XhvhVziVLb`.
+Branch `main`; push with `git -c push.negotiate=true push origin main`. Commit trailer lines (exact text) are in `docs/PLAYBOOK.md` section 2: copy them as the last lines of every commit message.

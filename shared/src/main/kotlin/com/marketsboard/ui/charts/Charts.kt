@@ -21,6 +21,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.DashFonts
+import java.util.Locale
 
 /** Reduce [values] to at most [max] points by striding (keeps shape, cheap). */
 fun downsample(values: List<Float>, max: Int = 300): List<Float> {
@@ -83,14 +84,14 @@ fun BarChart(values: List<Float>, modifier: Modifier = Modifier, highlightLast: 
             val last = highlightLast && i == values.lastIndex
             val x = i * (bw + gap)
             drawRoundRect(
-                color = if (last) Dash.text else Color(0xFF34343A),
+                color = if (last) Dash.text else Dash.barIdle,
                 topLeft = Offset(x, size.height - bh),
                 size = Size(bw, bh),
                 cornerRadius = CornerRadius(bw * 0.28f, bw * 0.28f),
             )
             if (v >= 1f) {
                 val layout = tm.measure(
-                    "%.0f".format(v),
+                    String.format(Locale.US, "%.0f", v),
                     TextStyle(fontFamily = DashFonts.family, fontSize = 11.sp, fontWeight = FontWeight.Medium),
                 )
                 drawText(
