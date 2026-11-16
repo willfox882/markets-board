@@ -22,3 +22,6 @@ Look at every PNG after any UI change.
 
 ## Layout
 `sandbox/src/main/kotlin/com/marketsboard/sandbox/`: `SandboxApp.kt`, `Screenshots.kt`, `Fonts.kt`, `Main.kt`. Tests: `sandbox/src/test/.../SandboxSmokeTest.kt`.
+
+## Fake market data (M1, code only)
+`FakeMarketDataProvider` (sandbox `main`) serves deterministic quotes for any symbol, with behaviours Normal, Slow, Offline, RateLimited, PartialFailure and BadData switchable from code. There is no panel for it yet; M2 wires it into the sandbox UI and controls.

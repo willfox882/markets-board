@@ -1,0 +1,130 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "CAD",
+     "symbol": "XEQT.TO",
+     "exchangeName": "TOR",
+     "fullExchangeName": "Toronto",
+     "instrumentType": "ETF",
+     "firstTradeDate": 1000000000,
+     "regularMarketTime": 1714766400,
+     "hasPrePostMarketData": false,
+     "gmtoffset": -14400,
+     "timezone": "EDT",
+     "exchangeTimezoneName": "America/New_York",
+     "regularMarketPrice": 41.87,
+     "fiftyTwoWeekHigh": 50.279999999999994,
+     "fiftyTwoWeekLow": 33.2,
+     "regularMarketDayHigh": 41.9,
+     "regularMarketDayLow": 41.5,
+     "regularMarketVolume": 1234567,
+     "longName": "iShares Core Equity ETF Portfolio",
+     "shortName": "ISHARES CORE EQUITY ETF PORTFOLIO",
+     "chartPreviousClose": 41.52,
+     "priceHint": 2,
+     "currentTradingPeriod": {
+      "pre": {
+       "timezone": "EDT",
+       "start": 1714723200,
+       "end": 1714743000,
+       "gmtoffset": -14400
+      },
+      "regular": {
+       "timezone": "EDT",
+       "start": 1714743000,
+       "end": 1714766400,
+       "gmtoffset": -14400
+      },
+      "post": {
+       "timezone": "EDT",
+       "start": 1714766400,
+       "end": 1714780800,
+       "gmtoffset": -14400
+      }
+     },
+     "dataGranularity": "5m",
+     "range": "1d",
+     "validRanges": [
+      "1d",
+      "5d",
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "5y",
+      "max"
+     ]
+    },
+    "timestamp": [
+     1714743000,
+     1714743300,
+     1714743600,
+     1714743900,
+     1714744200,
+     1714744500,
+     1714744800,
+     1714745100
+    ],
+    "indicators": {
+     "quote": [
+      {
+       "open": [
+        41.55,
+        41.6,
+        41.58,
+        41.71,
+        41.8,
+        41.77,
+        41.85,
+        41.87
+       ],
+       "high": [
+        41.55,
+        41.6,
+        41.58,
+        41.71,
+        41.8,
+        41.77,
+        41.85,
+        41.87
+       ],
+       "low": [
+        41.55,
+        41.6,
+        41.58,
+        41.71,
+        41.8,
+        41.77,
+        41.85,
+        41.87
+       ],
+       "close": [
+        41.55,
+        41.6,
+        41.58,
+        41.71,
+        41.8,
+        41.77,
+        41.85,
+        41.87
+       ],
+       "volume": [
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "error": null
+ }
+}

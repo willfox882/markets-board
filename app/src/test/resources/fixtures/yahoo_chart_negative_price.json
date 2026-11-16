@@ -1,0 +1,131 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "USD",
+     "symbol": "MSFT",
+     "exchangeName": "NMS",
+     "fullExchangeName": "NasdaqGS",
+     "instrumentType": "EQUITY",
+     "firstTradeDate": 1000000000,
+     "regularMarketTime": 1714766400,
+     "hasPrePostMarketData": false,
+     "gmtoffset": -14400,
+     "timezone": "EDT",
+     "exchangeTimezoneName": "America/New_York",
+     "regularMarketPrice": -5,
+     "fiftyTwoWeekHigh": 497.03999999999996,
+     "fiftyTwoWeekLow": 329.20000000000005,
+     "regularMarketDayHigh": 414.2,
+     "regularMarketDayLow": 411.5,
+     "regularMarketVolume": 1234567,
+     "longName": "Microsoft Corporation",
+     "shortName": "Microsoft Corporation",
+     "chartPreviousClose": 411.46,
+     "priceHint": 2,
+     "currentTradingPeriod": {
+      "pre": {
+       "timezone": "EDT",
+       "start": 1714723200,
+       "end": 1714743000,
+       "gmtoffset": -14400
+      },
+      "regular": {
+       "timezone": "EDT",
+       "start": 1714743000,
+       "end": 1714766400,
+       "gmtoffset": -14400
+      },
+      "post": {
+       "timezone": "EDT",
+       "start": 1714766400,
+       "end": 1714780800,
+       "gmtoffset": -14400
+      }
+     },
+     "dataGranularity": "5m",
+     "range": "1d",
+     "validRanges": [
+      "1d",
+      "5d",
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "5y",
+      "max"
+     ],
+     "previousClose": 411.46
+    },
+    "timestamp": [
+     1714743000,
+     1714743300,
+     1714743600,
+     1714743900,
+     1714744200,
+     1714744500,
+     1714744800,
+     1714745100
+    ],
+    "indicators": {
+     "quote": [
+      {
+       "open": [
+        411.9,
+        412.5,
+        413.1,
+        412.8,
+        413.9,
+        414.2,
+        413.2,
+        413.54
+       ],
+       "high": [
+        411.9,
+        412.5,
+        413.1,
+        412.8,
+        413.9,
+        414.2,
+        413.2,
+        413.54
+       ],
+       "low": [
+        411.9,
+        412.5,
+        413.1,
+        412.8,
+        413.9,
+        414.2,
+        413.2,
+        413.54
+       ],
+       "close": [
+        411.9,
+        412.5,
+        413.1,
+        412.8,
+        413.9,
+        414.2,
+        413.2,
+        413.54
+       ],
+       "volume": [
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "error": null
+ }
+}

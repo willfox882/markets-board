@@ -1,0 +1,86 @@
+{
+ "explains": [],
+ "count": 6,
+ "quotes": [
+  {
+   "exchange": "TOR",
+   "shortname": "ISHARES CORE EQUITY ETF PORTFOLIO",
+   "quoteType": "ETF",
+   "symbol": "XEQT.TO",
+   "index": "quotes",
+   "score": 31000.0,
+   "typeDisp": "ETF",
+   "longname": "iShares Core Equity ETF Portfolio",
+   "exchDisp": "Toronto",
+   "sector": "",
+   "industry": "",
+   "isYahooFinance": true
+  },
+  {
+   "exchange": "NMS",
+   "shortname": "Microsoft Corporation",
+   "quoteType": "EQUITY",
+   "symbol": "MSFT",
+   "index": "quotes",
+   "score": 30000.0,
+   "typeDisp": "Equity",
+   "longname": "Microsoft Corporation",
+   "exchDisp": "NASDAQ",
+   "sector": "Technology",
+   "industry": "Software",
+   "isYahooFinance": true
+  },
+  {
+   "exchange": "SNP",
+   "shortname": "S&P 500",
+   "quoteType": "INDEX",
+   "symbol": "^GSPC",
+   "index": "quotes",
+   "score": 20000.0,
+   "typeDisp": "Index",
+   "exchDisp": "S&P",
+   "isYahooFinance": true
+  },
+  {
+   "exchange": "CCY",
+   "shortname": "USD/CAD",
+   "quoteType": "CURRENCY",
+   "symbol": "USDCAD=X",
+   "index": "quotes",
+   "score": 19000.0,
+   "typeDisp": "Currency",
+   "exchDisp": "CCY",
+   "isYahooFinance": true
+  },
+  {
+   "exchange": "OPR",
+   "shortname": "MSFT240510C00400000",
+   "quoteType": "OPTION",
+   "symbol": "MSFT240510C00400000",
+   "index": "quotes",
+   "score": 100.0,
+   "typeDisp": "Option",
+   "exchDisp": "OPR",
+   "isYahooFinance": true
+  },
+  {
+   "exchange": "NAS",
+   "shortname": "Some Fund",
+   "quoteType": "MUTUALFUND",
+   "symbol": "MSFFX",
+   "index": "quotes",
+   "score": 50.0,
+   "typeDisp": "Fund",
+   "exchDisp": "NASDAQ",
+   "isYahooFinance": true
+  },
+  {
+   "shortname": "No Symbol Co",
+   "quoteType": "EQUITY"
+  }
+ ],
+ "news": [],
+ "nav": [],
+ "lists": [],
+ "totalTime": 12
+}

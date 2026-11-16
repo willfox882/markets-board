@@ -25,6 +25,8 @@ dependencies {
     implementation(compose.material3)
     implementation(compose.foundation)
     implementation(libs.kotlinx.coroutines.swing)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
