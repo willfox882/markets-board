@@ -40,6 +40,10 @@ import com.marketsboard.ui.UiMode
 @Composable
 fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
     var behavior by remember { mutableStateOf(env.fake.behavior) }
+    var newsBehavior by remember { mutableStateOf(env.newsFetcher.behavior) }
+    var lastBreaking by remember { mutableStateOf("") }
+    val opened by env.lastOpenedUrl.collectAsState()
+    val newsState by env.news.state.collectAsState()
     var latency by remember { mutableStateOf(0f) }
     var skew by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1) }
@@ -58,12 +62,20 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
             color = Dash.dim, fontSize = 12.sp, lineHeight = 17.sp,
         )
         Hairline()
-        Label("Provider behaviour")
+        Label("Market behaviour")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             FakeBehavior.entries.forEach { b ->
                 Chip(behaviorLabel(b), selected = b == behavior) { behavior = b; env.fake.behavior = b }
             }
         }
+        Label("News behaviour")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FakeNewsBehavior.entries.forEach { b ->
+                Chip(newsLabel(b), selected = b == newsBehavior) { newsBehavior = b; env.newsFetcher.behavior = b }
+            }
+        }
+        PillButton("Add breaking headline", { lastBreaking = env.newsFetcher.addBreaking() }, Modifier.fillMaxWidth(), kind = PillKind.Secondary, small = true)
+        if (lastBreaking.isNotEmpty()) Text("Added: $lastBreaking. Press Refresh on the News tab.", color = Dash.dim, fontSize = 12.sp, lineHeight = 17.sp)
         Label("Latency: ${latency.toInt()} ms")
         Slider(
             value = latency, onValueChange = { latency = it; env.fake.latencyMs = it.toLong() }, valueRange = 0f..8000f,
@@ -85,9 +97,19 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
         Hairline()
         Label("Stats")
         Text("Quote calls: ${env.fake.quoteCalls}", color = Dash.dim, fontSize = 13.sp)
+        Text("News fetches: ${env.newsFetcher.calls} (${env.newsFetcher.notModified} answered 304), ${newsState.items.size} headlines", color = Dash.dim, fontSize = 13.sp)
+        if (opened.isNotEmpty()) Text("Open article: $opened", color = Dash.dim, fontSize = 12.sp, lineHeight = 17.sp)
         Text(if (refreshing) "Refreshing now" else "Idle", color = Dash.dim, fontSize = 13.sp)
         Text("Esc goes back.", color = Dash.faint, fontSize = 12.sp)
     }
+}
+
+private fun newsLabel(b: FakeNewsBehavior) = when (b) {
+    FakeNewsBehavior.Normal -> "Normal"
+    FakeNewsBehavior.Slow -> "Slow"
+    FakeNewsBehavior.Offline -> "Offline"
+    FakeNewsBehavior.MalformedFeeds -> "Malformed feeds"
+    FakeNewsBehavior.OneFeedFailing -> "One feed failing"
 }
 
 private fun behaviorLabel(b: FakeBehavior) = when (b) {

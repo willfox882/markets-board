@@ -8,7 +8,7 @@ import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 import com.marketsboard.ui.MbTab
 import com.marketsboard.ui.markets.MarketsUiState
-import com.marketsboard.ui.news.NewsComingSoon
+import com.marketsboard.ui.news.NewsUiState
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
 
@@ -21,9 +21,9 @@ fun main(args: Array<String>) {
     loadDashFonts()
     val out = File(args.firstOrNull() ?: "build/screenshots").apply { mkdirs() }
 
-    fun shot(name: String, state: MarketsUiState, tab: MbTab = MbTab.Markets, w: Int = 810, h: Int = 1440) {
+    fun shot(name: String, state: MarketsUiState, tab: MbTab = MbTab.Markets, news: NewsUiState = NewsUiState(), w: Int = 810, h: Int = 1440) {
         val scene = ImageComposeScene(width = w, height = h, density = Density(1f)) {
-            MarketsBoardTheme { MarketsBoardRoot(state, NewsComingSoon, tab) }
+            MarketsBoardTheme { MarketsBoardRoot(state, news, tab) }
         }
         for (i in 0 until 8) scene.render(i * 120_000_000L) // let animations settle
         val img = scene.render(2_000_000_000L)
@@ -51,7 +51,16 @@ fun main(args: Array<String>) {
     shot("add_suggestions", F.addSuggestions())
     shot("add_offline", F.addOffline())
     shot("replace", F.replace())
-    shot("news", F.normal(), MbTab.News)
+    shot("news", F.normal(), MbTab.News, F.news())
+    shot("news_long_titles", F.normal(), MbTab.News, F.newsLongTitles())
+    shot("news_my_symbols", F.normal(), MbTab.News, F.newsMySymbols())
+    shot("news_my_symbols_empty", F.normal(), MbTab.News, F.newsMySymbolsEmpty())
+    shot("news_loading", F.normal(), MbTab.News, F.newsLoading())
+    shot("news_empty", F.normal(), MbTab.News, F.newsEmpty())
+    shot("news_error", F.normal(), MbTab.News, F.newsError())
+    shot("news_stale", F.normal(), MbTab.News, F.newsStale())
+    shot("news_detail", F.normal(), MbTab.News, F.newsDetail())
+    shot("news_glance", F.glance(), MbTab.News, F.newsGlance())
     shot("settings", F.normal(), MbTab.Settings)
     println("done")
 }

@@ -18,7 +18,6 @@ import com.marketsboard.ui.MbTab
 import com.marketsboard.ui.markets.MarketsUiState
 import com.marketsboard.ui.markets.QuoteRow
 import com.marketsboard.ui.markets.QuoteRowUi
-import com.marketsboard.ui.news.HeadlineUi
 import com.marketsboard.ui.news.NewsUiState
 import com.marketsboard.ui.settings.SettingsScreen
 import androidx.compose.ui.text.font.FontFamily
@@ -54,7 +53,7 @@ class RenderTest {
     }
 
     private fun flat(price: Double) = quote(price, price)
-    private val news = NewsUiState(listOf(HeadlineUi("Canada", "A headline", 600)), "status", "note")
+    private val news = NewsUiState()
 
     @Test fun geistIsActiveAfterLoadingFonts() {
         assertNotSame(FontFamily.Default, DashFonts.family)

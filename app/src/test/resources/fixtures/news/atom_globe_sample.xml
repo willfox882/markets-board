@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>The Globe and Mail: Business</title>
+<link rel="alternate" href="https://www.theglobeandmail.com/business/"/>
+<updated>2026-11-16T15:00:00Z</updated>
+<id>tag:theglobeandmail.com,2026:business</id>
+<entry>
+<id>tag:theglobeandmail.com,2026:abc1</id>
+<title type="html">Loblaw raises dividend after strong quarter</title>
+<link rel="self" href="https://www.theglobeandmail.com/feed/abc1"/>
+<link rel="alternate" type="text/html" href="https://www.theglobeandmail.com/business/article-loblaw-dividend/"/>
+<published>2026-11-16T12:05:00-05:00</published>
+<updated>2026-11-16T12:30:00-05:00</updated>
+<summary type="html">&lt;p&gt;The grocer said same-store sales rose 3.4 per cent.&lt;/p&gt;</summary>
+</entry>
+<entry>
+<id>tag:theglobeandmail.com,2026:abc2</id>
+<title>Oil slips as OPEC+ signals more supply</title>
+<link href="https://www.theglobeandmail.com/business/article-oil-slips/"/>
+<updated>2026-11-15T09:00:00.123+0000</updated>
+<content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>West Texas Intermediate fell <b>1.2</b> per cent.</p></div></content>
+</entry>
+</feed>

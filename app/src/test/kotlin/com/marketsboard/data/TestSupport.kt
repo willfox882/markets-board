@@ -26,6 +26,9 @@ class FakeClock(var now: Long = 1_700_000_000_000L, var mono: Long = 5_000_000L)
 }
 
 object Fixtures {
+    fun bytes(name: String): ByteArray =
+        (Fixtures::class.java.getResourceAsStream("/fixtures/$name") ?: error("missing fixture $name")).use { it.readBytes() }
+
     fun text(name: String): String =
         (Fixtures::class.java.getResourceAsStream("/fixtures/$name") ?: error("missing fixture $name")).use { String(it.readBytes(), Charsets.UTF_8) }
 }

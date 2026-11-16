@@ -1,53 +1,260 @@
 package com.marketsboard.ui.news
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marketsboard.ui.Dash
+import com.marketsboard.ui.Dot
 import com.marketsboard.ui.Hairline
-import com.marketsboard.ui.Label
+import com.marketsboard.ui.LocalBackHook
+import com.marketsboard.ui.LocalOpenUrl
+import com.marketsboard.ui.PillButton
+import com.marketsboard.ui.PillKind
 import com.marketsboard.ui.ScreenTitle
-import com.marketsboard.ui.formatTimeAgo
+import com.marketsboard.ui.SegmentedControl
+import com.marketsboard.ui.TextAction
+import com.marketsboard.ui.UiMode
+import com.marketsboard.ui.markets.BackChevron
 
-/** Headlines list. Stateless: everything comes in through [state]. */
+/**
+ * The News tab: header (title, Refresh), status line, All / My symbols switch, hairline-separated headlines, and the
+ * article detail as a full-screen overlay (the list is not composed under it, so nothing behind can be tapped).
+ * Glance mode shows only the top few titles and no controls. Greyscale except the amber stale and error cues.
+ * Stateless: everything comes in through [state] and goes out through [actions].
+ */
 @Composable
-fun NewsScreen(state: NewsUiState, modifier: Modifier = Modifier) {
-    LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+fun NewsScreen(state: NewsUiState, modifier: Modifier = Modifier, actions: NewsActions = NewsActions.None) {
+    LocalBackHook.current(state.canGoBack) { actions.onBack() }
+    Box(modifier.fillMaxSize()) {
+        val d = state.detail
+        if (d == null) NewsList(state, actions) else NewsDetail(d, actions, Modifier.fillMaxSize().background(Dash.bg))
+    }
+}
+
+@Composable
+private fun NewsList(state: NewsUiState, actions: NewsActions) {
+    val glance = state.mode == UiMode.Glance
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
         item {
-            ScreenTitle("News", Modifier.padding(top = 18.dp))
-            if (state.statusLine.isNotEmpty()) {
-                Text(state.statusLine, color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
-            }
-        }
-        item { Hairline() }
-        state.headlines.forEach { h ->
-            item {
-                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                    Label(h.category)
-                    Text(
-                        h.title, color = Dash.text, fontSize = 19.sp, fontWeight = FontWeight.Medium, lineHeight = 25.sp,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                    Text(formatTimeAgo(h.ageSec), color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+            Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                ScreenTitle("News", Modifier.weight(1f))
+                // The slot keeps its size while refreshing: only the colour changes, so nothing moves.
+                if (!glance) {
+                    TextAction("Refresh", if (state.refreshing) ({}) else actions::onRefresh, Modifier.offset(x = 10.dp), color = if (state.refreshing) Dash.faint else Dash.text)
                 }
-                Hairline(Modifier.padding(top = 12.dp))
+            }
+            if (state.statusLine.isNotEmpty() || state.refreshing) NewsStatus(state)
+        }
+        if (state.banner.isNotEmpty() && state.phase != NewsPhase.Error) item { NewsBanner(state.banner, actions::onRetry) }
+        if (!glance) {
+            item {
+                SegmentedControl(
+                    listOf("All", "My symbols"), if (state.filter == NewsFilter.All) 0 else 1,
+                    { actions.onSetFilter(if (it == 0) NewsFilter.All else NewsFilter.MySymbols) }, Modifier.padding(top = 16.dp),
+                )
             }
         }
-        if (state.footnote.isNotEmpty()) {
-            item {
-                Text(
-                    state.footnote, color = Dash.dim, fontSize = 12.sp, lineHeight = 17.sp,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
-                )
+        item { Hairline(Modifier.padding(top = 14.dp)) }
+        when (state.phase) {
+            NewsPhase.Loading -> items(5) { Column { SkeletonRow(); Hairline() } }
+            NewsPhase.Error -> item { ErrorState(state.banner, actions::onRetry) }
+            NewsPhase.Empty -> item { EmptyState(state, actions) }
+            NewsPhase.Ready -> itemsIndexed(state.rows) { _, r ->
+                Column {
+                    if (glance) GlanceHeadline(r) else HeadlineRow(r, onClick = { actions.onOpen(r.id) })
+                    Hairline()
+                }
+            }
+        }
+        item { Spacer(Modifier.height(28.dp)) }
+    }
+}
+
+/** "Updated 3 min ago": amber dot and text when the list is stale, a grey dot otherwise. */
+@Composable
+private fun NewsStatus(s: NewsUiState) {
+    val color = if (s.stale) Dash.amber else Dash.dim
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Dot(if (s.stale) Dash.amber else Dash.faint, 8)
+        Text(
+            if (s.refreshing && s.statusLine.isEmpty()) "Refreshing" else s.statusLine, color = color, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+            maxLines = 1, modifier = Modifier.padding(start = 8.dp),
+        )
+        if (s.refreshing && s.statusLine.isNotEmpty()) Text("  ·  Refreshing", color = Dash.dim, fontSize = 14.sp, maxLines = 1)
+    }
+}
+
+/** Thin amber band: what is wrong in plain words and a Retry in its own column. */
+@Composable
+private fun NewsBanner(text: String, onRetry: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(10.dp)).background(Dash.surface).padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Dot(Dash.amber, 6)
+        Text(text, color = Dash.amber, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f).padding(start = 8.dp, end = 8.dp))
+        TextAction("Retry", onRetry, color = Dash.text)
+    }
+}
+
+/**
+ * One headline: `SOURCE  ·  3h ago` with the watchlist tag(s) at the right, then the title (up to 3 lines) and a 2-line dim
+ * summary when there is one. [onTitleLayout] reports the title layout (tests only).
+ */
+@Composable
+fun HeadlineRow(r: HeadlineRowUi, modifier: Modifier = Modifier, onClick: () -> Unit = {}, onTitleLayout: (TextLayoutResult) -> Unit = {}) {
+    Column(modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 64.dp).padding(vertical = 14.dp)) {
+        MetaLine(r.source, r.ago, r.tags)
+        Text(
+            r.title, color = Dash.text, fontSize = 17.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium, maxLines = 3,
+            overflow = TextOverflow.Ellipsis, onTextLayout = onTitleLayout, modifier = Modifier.padding(top = 6.dp),
+        )
+        if (r.summary.isNotEmpty()) {
+            Text(r.summary, color = Dash.dim, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+/** `SOURCE  ·  3h ago` on the left, the watchlist tags on the right; a fixed height so rows with and without tags line up. */
+@Composable
+private fun MetaLine(source: String, ago: String, tags: List<String>) {
+    Row(Modifier.fillMaxWidth().height(22.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                source, color = Dash.dim, fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.3.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text("  \u00b7  $ago", color = Dash.dim, fontSize = 12.sp, maxLines = 1, softWrap = false)
+        }
+        tags.forEach { TagChip(it, Modifier.padding(start = 6.dp)) }
+    }
+}
+
+/** Small dim tag with a hairline outline, e.g. `MSFT`: a 20 dp pill with the text centred in it. */
+@Composable
+fun TagChip(text: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier.height(20.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, Dash.line, RoundedCornerShape(6.dp)).padding(horizontal = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text, color = Dash.dim, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.8.sp, maxLines = 1, softWrap = false,
+            style = TextStyle(lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both)),
+        )
+    }
+}
+
+/** Glance: title only, bigger, no tap. */
+@Composable
+fun GlanceHeadline(r: HeadlineRowUi, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().padding(vertical = 18.dp)) {
+        Text(r.source + "  ·  " + r.ago, color = Dash.dim, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(r.title, color = Dash.text, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+@Composable
+private fun SkeletonRow() {
+    Column(Modifier.fillMaxWidth().padding(vertical = 18.dp)) {
+        Block(0.28f, 10)
+        Block(0.95f, 17, Modifier.padding(top = 12.dp))
+        Block(0.7f, 17, Modifier.padding(top = 8.dp))
+        Block(0.5f, 12, Modifier.padding(top = 10.dp))
+    }
+}
+
+@Composable
+private fun Block(fraction: Float, h: Int, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth(fraction).height(h.dp).clip(RoundedCornerShape(5.dp)).background(Dash.surfaceHigh))
+}
+
+@Composable
+private fun EmptyState(s: NewsUiState, actions: NewsActions) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 56.dp, horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(s.emptyTitle, color = Dash.text, fontSize = 22.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+        Text(s.emptyHint, color = Dash.dim, fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 10.dp))
+        if (s.filter == NewsFilter.MySymbols) {
+            PillButton("Show all headlines", { actions.onSetFilter(NewsFilter.All) }, Modifier.padding(top = 24.dp), kind = PillKind.Secondary)
+        }
+    }
+}
+
+@Composable
+private fun ErrorState(reason: String, onRetry: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 56.dp, horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("No news to show yet", color = Dash.text, fontSize = 22.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+        if (reason.isNotEmpty()) {
+            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Dot(Dash.amber, 6)
+                Text(reason, color = Dash.amber, fontSize = 15.sp, modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+        Text(
+            "Headlines load as soon as the connection is back.", color = Dash.dim, fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        PillButton("Try again", onRetry, Modifier.padding(top = 24.dp), kind = PillKind.Primary)
+    }
+}
+
+/** The article: source and age, the headline, when it was published, the feed's summary, tags and an Open article button. */
+@Composable
+fun NewsDetail(d: HeadlineDetailUi, actions: NewsActions, modifier: Modifier = Modifier) {
+    val open = LocalOpenUrl.current
+    LazyColumn(modifier.padding(horizontal = 20.dp)) {
+        item {
+            Row(
+                Modifier.padding(top = 12.dp).heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = actions::onCloseDetail).padding(end = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BackChevron(Modifier.padding(start = 6.dp, end = 10.dp))
+                Text("News", color = Dash.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        item {
+            Box(Modifier.padding(top = 18.dp)) { MetaLine(d.source, d.ago, d.tags) }
+            Text(d.title, color = Dash.text, fontSize = 26.sp, lineHeight = 33.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.3).sp, modifier = Modifier.padding(top = 12.dp))
+            if (d.published.isNotEmpty()) Text(d.published, color = Dash.dim, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
+            Hairline(Modifier.padding(top = 18.dp))
+        }
+        item {
+            if (d.summary.isNotEmpty()) {
+                Text(d.summary, color = Dash.text, fontSize = 17.sp, lineHeight = 26.sp, modifier = Modifier.padding(top = 18.dp))
+            } else {
+                Text("This source sent no summary. Open the article to read it.", color = Dash.dim, fontSize = 16.sp, lineHeight = 24.sp, modifier = Modifier.padding(top = 18.dp))
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                PillButton("Open article", { open(d.url) }, Modifier.fillMaxWidth(), kind = PillKind.Primary)
+                if (d.host.isNotEmpty()) Text("Opens ${d.host}", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
             }
         }
     }

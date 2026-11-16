@@ -1,6 +1,9 @@
 package com.marketsboard
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -15,9 +18,11 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.marketsboard.ui.markets.MarketsUiState
-import com.marketsboard.ui.news.NewsComingSoon
+import com.marketsboard.ui.news.NewsPhase
+import com.marketsboard.ui.news.NewsUiState
 import com.marketsboard.ui.DashFonts
 import com.marketsboard.ui.LocalBackHook
+import com.marketsboard.ui.LocalOpenUrl
 import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 
@@ -34,16 +39,34 @@ class MainActivity : ComponentActivity() {
         val runtime = (application as MarketsBoardApplication).runtime
         setContent {
             MarketsBoardTheme {
-                CompositionLocalProvider(LocalBackHook provides { enabled, onBack -> BackHandler(enabled, onBack) }) {
+                CompositionLocalProvider(
+                    LocalBackHook provides { enabled, onBack -> BackHandler(enabled, onBack) },
+                    LocalOpenUrl provides { url -> openUrl(url) },
+                ) {
                     if (runtime != null) {
                         val state by runtime.presenter.state.collectAsState()
-                        MarketsBoardRoot(state, NewsComingSoon, actions = runtime.presenter)
+                        val news by runtime.newsPresenter.state.collectAsState()
+                        MarketsBoardRoot(state, news, actions = runtime.presenter, newsActions = runtime.newsPresenter)
                     } else {
                         // The data layer could not start (storage unavailable): keep the shell alive, show nothing invented.
-                        MarketsBoardRoot(MarketsUiState(emptyList()), NewsComingSoon)
+                        MarketsBoardRoot(
+                            MarketsUiState(emptyList()),
+                            NewsUiState(phase = NewsPhase.Empty, emptyTitle = "News is unavailable", emptyHint = "The app could not open its storage."),
+                        )
                     }
                 }
             }
+        }
+    }
+
+    /** Opens an http(s) link in the system browser. Any failure (no browser on the head unit, bad link) is ignored. */
+    private fun openUrl(url: String) {
+        try {
+            val uri = Uri.parse(url)
+            if (uri.scheme != "http" && uri.scheme != "https") return
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (e: Throwable) {
+            Log.w("MarketsBoard", "could not open link", e)
         }
     }
 

@@ -243,3 +243,23 @@ fun ValueRow(title: String, value: String, modifier: Modifier = Modifier, onClic
         if (onClick != null) Text("  ›", color = Dash.faint, fontSize = 20.sp)
     }
 }
+
+/** Two or more mutually exclusive options as a pill track (same look as the chart range pills), 44 dp tall segments. */
+@Composable
+fun SegmentedControl(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(Dash.surfaceHigh).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEachIndexed { i, label ->
+            val on = i == selected
+            Box(
+                Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(50)).background(if (on) Dash.text else Dash.surfaceHigh)
+                    .clickable { onSelect(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, color = if (on) Dash.onLight else Dash.dim, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            }
+        }
+    }
+}

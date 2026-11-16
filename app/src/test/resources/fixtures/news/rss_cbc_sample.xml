@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+<title>CBC | Business News</title>
+<link>https://www.cbc.ca/news/business</link>
+<description>Business headlines</description>
+<atom:link href="https://www.cbc.ca/webfeed/rss/rss-business" rel="self" type="application/rss+xml"/>
+<image><title>CBC logo</title><url>https://www.cbc.ca/logo.png</url><link>https://www.cbc.ca</link></image>
+<item>
+<title>Bank of Canada holds key rate at 2.25 per cent as inflation cools</title>
+<link>https://www.cbc.ca/news/business/bank-of-canada-rate-1.7100001?cmp=rss</link>
+<guid isPermaLink="false">1.7100001</guid>
+<pubDate>Mon, 16 Nov 2026 14:30:00 GMT</pubDate>
+<description><![CDATA[<p>The central bank left its policy rate unchanged on Wednesday.</p><p><a href="https://www.cbc.ca/more">More</a></p>]]></description>
+</item>
+<item>
+<title>TSX edges higher as energy &amp; bank shares lead gains</title>
+<link>https://www.cbc.ca/news/business/tsx-edges-higher-1.7100002</link>
+<guid isPermaLink="false">1.7100002</guid>
+<pubDate>Mon, 16 Nov 2026 13:10:00 -0500</pubDate>
+<description>The S&amp;amp;P/TSX composite index rose 62 points.&lt;br/&gt;Trading continued.</description>
+</item>
+<item>
+<title><![CDATA[Rogers & Bell cut plan prices]]></title>
+<link>https://www.cbc.ca/news/business/rogers-bell-1.7100003</link>
+<guid>https://www.cbc.ca/news/business/rogers-bell-1.7100003</guid>
+<pubDate>Sun, 15 Nov 2026 22:00:00 EST</pubDate>
+</item>
+</channel>
+</rss>

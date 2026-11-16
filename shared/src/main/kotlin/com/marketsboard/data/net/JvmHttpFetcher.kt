@@ -150,6 +150,7 @@ class JvmHttpFetcher(
                     body = body,
                     headers = respHeaders,
                     retryAfterMs = parseRetryAfter(respHeaders["retry-after"], clock.nowMs()),
+                    bytes = bytes,
                 )
             } catch (e: SocketTimeoutException) {
                 return fail(ErrorKind.Timeout, "timeout: ${e.message}")

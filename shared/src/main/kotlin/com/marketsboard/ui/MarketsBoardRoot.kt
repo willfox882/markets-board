@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.marketsboard.ui.markets.MarketsActions
 import com.marketsboard.ui.markets.MarketsScreen
 import com.marketsboard.ui.markets.MarketsUiState
+import com.marketsboard.ui.news.NewsActions
 import com.marketsboard.ui.news.NewsScreen
 import com.marketsboard.ui.news.NewsUiState
 import com.marketsboard.ui.settings.SettingsScreen
@@ -37,6 +38,7 @@ fun MarketsBoardRoot(
     initialTab: MbTab = MbTab.Markets,
     actions: MarketsActions = MarketsActions.None,
     mode: UiMode = markets.mode,
+    newsActions: NewsActions = NewsActions.None,
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     DesignScale {
@@ -44,12 +46,12 @@ fun MarketsBoardRoot(
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
                     MbTab.Markets -> MarketsScreen(if (markets.mode == mode) markets else markets.copy(mode = mode), actions = actions)
-                    MbTab.News -> NewsScreen(news)
+                    MbTab.News -> NewsScreen(if (news.mode == mode) news else news.copy(mode = mode), actions = newsActions)
                     MbTab.Settings -> SettingsScreen()
                 }
             }
-            // Detail and the add sheet are full-screen: the tab bar steps aside so their content is not cut off.
-            val fullScreen = tab == MbTab.Markets && (markets.detail != null || markets.add != null)
+            // Detail, the article and the add sheet are full-screen: the tab bar steps aside so their content is not cut off.
+            val fullScreen = (tab == MbTab.Markets && (markets.detail != null || markets.add != null)) || (tab == MbTab.News && news.detail != null && mode != UiMode.Glance)
             if (!fullScreen) Hairline()
             if (!fullScreen) Row(Modifier.fillMaxWidth().height(60.dp)) {
                 MbTab.entries.forEach { t ->

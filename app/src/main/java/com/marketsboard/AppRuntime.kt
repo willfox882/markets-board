@@ -3,9 +3,11 @@ package com.marketsboard
 import com.marketsboard.data.Clock
 import com.marketsboard.refresh.ActiveGate
 import com.marketsboard.refresh.NetworkSignal
+import com.marketsboard.refresh.NewsPoller
 import com.marketsboard.refresh.RefreshController
 import com.marketsboard.ui.UiMode
 import com.marketsboard.ui.markets.MarketsPresenter
+import com.marketsboard.ui.news.NewsPresenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +26,7 @@ class AppRuntime(
     clock: Clock = AndroidClock,
     network: NetworkSignal = NetworkSignal.None,
 ) {
-    /** Flipped by the Activity: [ActiveGate.resume] in onResume, [ActiveGate.pause] in onPause. Reused by the M3 news poller. */
+    /** Flipped by the Activity: [ActiveGate.resume] in onResume, [ActiveGate.pause] in onPause. Also gates the news poller. */
     val gate = ActiveGate()
     val uiMode = MutableStateFlow(UiMode.Normal)
 
@@ -35,9 +37,13 @@ class AppRuntime(
         isActive = gate.isActive,
         clock = clock,
         // Retry a failed watchlist write on every resume, off the main thread.
-        onResume = { scope.launch(Dispatchers.IO) { graph.watchlist.flushIfDirty() } },
+        onResume = { scope.launch(Dispatchers.IO) { graph.watchlist.flushIfDirty(); graph.feedStore.flushIfDirty() } },
         network = network,
     )
 
     val presenter = MarketsPresenter(scope, graph.data, controller, clock, mode = uiMode)
+
+    /** News polling (every 10 min, immediately on resume and when the network returns) on the same gate. */
+    val newsPoller = NewsPoller(scope, graph.news, graph.feedStore, graph.watchlist.items, gate.isActive, network, clock)
+    val newsPresenter = NewsPresenter(scope, graph.news, newsPoller, uiMode)
 }

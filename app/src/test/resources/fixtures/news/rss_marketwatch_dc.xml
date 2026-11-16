@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
+<channel>
+<title>MarketWatch.com - Top Stories</title>
+<item>
+<title>Gold climbs to a record as investors seek safety</title>
+<link>https://www.marketwatch.com/story/gold-climbs-1234?mod=mw_rss_topstories</link>
+<dc:date>2026-11-16T10:15:00Z</dc:date>
+<media:content url="https://example.com/a.jpg" medium="image"/>
+<content:encoded><![CDATA[<p>Gold futures settled at <strong>$4,120.60</strong> an ounce.</p><script>alert('x')</script><style>p{color:red}</style>]]></content:encoded>
+</item>
+<item>
+<title>  Bitcoin   slips below $100,000
+  as traders cut leverage  </title>
+<link>
+   https://www.marketwatch.com/story/bitcoin-slips-5678
+</link>
+<pubDate>Mon, 16 Nov 26 09:00 GMT</pubDate>
+</item>
+</channel>
+</rss>

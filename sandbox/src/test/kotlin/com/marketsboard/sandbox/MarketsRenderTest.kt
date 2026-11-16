@@ -22,7 +22,7 @@ import com.marketsboard.ui.markets.MarketsUiState
 import com.marketsboard.ui.markets.QuoteRow
 import com.marketsboard.ui.markets.QuoteRowUi
 import com.marketsboard.ui.markets.RowStatus
-import com.marketsboard.ui.news.NewsComingSoon
+import com.marketsboard.ui.news.NewsUiState
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -53,8 +53,8 @@ class MarketsRenderTest {
         }
     }
 
-    private fun root(state: MarketsUiState, tab: MbTab = MbTab.Markets): @Composable () -> Unit = {
-        MarketsBoardRoot(state, NewsComingSoon, tab)
+    private fun root(state: MarketsUiState, tab: MbTab = MbTab.Markets, news: NewsUiState = NewsUiState()): @Composable () -> Unit = {
+        MarketsBoardRoot(state, news, tab)
     }
 
     private val bg = Dash.bg.let { (it.red * 255).toInt() to (it.green * 255).toInt() }

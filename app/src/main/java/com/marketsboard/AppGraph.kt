@@ -4,6 +4,8 @@ import com.marketsboard.data.Clock
 import com.marketsboard.data.MarketsData
 import com.marketsboard.data.model.WatchItem
 import com.marketsboard.data.net.FetchLog
+import com.marketsboard.data.news.FeedStore
+import com.marketsboard.data.news.NewsRepository
 import com.marketsboard.data.net.HttpFetcher
 import com.marketsboard.data.net.JvmHttpFetcher
 import com.marketsboard.data.net.LoggingHttpFetcher
@@ -34,6 +36,10 @@ class AppGraph(filesDir: File, clock: Clock = Clock.System, rawFetcher: HttpFetc
         clock = clock,
         hints = { sym -> watchlist.items.value.firstOrNull { it.symbol == sym } },
     )
+
+    /** News: the editable feed list (`feeds.json`) and the repository that fetches, merges and caches headlines. */
+    val feedStore = FeedStore(File(filesDir, "feeds.json"), clock)
+    val news = NewsRepository(feedStore, watchlist.items, LoggingHttpFetcher(rawFetcher, fetchLog, "news", clock), cache, clock)
 
     /** What the Markets presenter edits through: watchlist + quotes + the provider used for search and validation. */
     val data = MarketsData(watchlist, quotes, yahoo)

@@ -35,11 +35,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.marketsboard.ui.news.NewsComingSoon
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.LocalBackHook
+import com.marketsboard.ui.LocalOpenUrl
 import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 
@@ -50,9 +50,11 @@ fun SandboxApp() {
     val scope = rememberCoroutineScope()
     val env = remember { SandboxEnv(scope) }
     val state by env.presenter.state.collectAsState()
+    val newsState by env.newsPresenter.state.collectAsState()
     MarketsBoardTheme {
         CompositionLocalProvider(
             LocalBackHook provides { enabled, onBack -> SideEffect { backCallback = if (enabled) onBack else null } },
+            LocalOpenUrl provides { url -> env.openUrl(url) },
         ) {
             Row(
                 Modifier.fillMaxSize().background(Color.Black).onKeyEvent {
@@ -68,7 +70,7 @@ fun SandboxApp() {
                             .border(8.dp, Dash.surfaceHigh, RoundedCornerShape(22.dp))
                             .padding(8.dp).clip(RoundedCornerShape(14.dp)),
                     ) {
-                        MarketsBoardRoot(state, NewsComingSoon, actions = env.presenter)
+                        MarketsBoardRoot(state, newsState, actions = env.presenter, newsActions = env.newsPresenter)
                     }
                 }
                 ControlPanel(env)

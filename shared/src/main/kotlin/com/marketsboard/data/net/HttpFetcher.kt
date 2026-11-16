@@ -17,6 +17,11 @@ data class HttpResponse(
     val failure: FetchResult.Err? = null,
     /** True when the failure says there is no route to the internet (unknown host, no route), so another host will not help. */
     val offline: Boolean = false,
+    /**
+     * The raw body when the fetcher kept it (the real one does), so XML can be decoded with its own declared charset
+     * instead of the header's guess. Null for fakes that only provide [body].
+     */
+    val bytes: ByteArray? = null,
 ) {
     val isSuccess: Boolean get() = failure == null && code in 200..299
 

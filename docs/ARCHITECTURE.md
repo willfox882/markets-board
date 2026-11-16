@@ -11,10 +11,10 @@
 ## shared/ (compiled by both :app and :sandbox)
 - `shared/res/font/geist_{light,regular,medium,semibold}.ttf`: Geist weights (Android `R.font`, desktop classpath `font/`).
 - `shared/src/main/kotlin/com/marketsboard/ui/Theme.kt`: `Dash` palette, `Tabular`, `DashFonts` hook, `MarketsBoardTheme`.
-- `.../ui/Components.kt`: Label, ScreenTitle, Hairline, Dot, DashCard, Numeral, StatGrid, PillButton, TextAction, SectionHeader, SwitchRow, ValueRow, DashDialog, Skeleton, `changeColor` and `liveDotColor` (the only two users of green/red).
+- `.../ui/Components.kt`: Label, ScreenTitle, Hairline, Dot, DashCard, Numeral, StatGrid, PillButton, TextAction, SectionHeader, SwitchRow, ValueRow, DashDialog, Skeleton, SegmentedControl, `changeColor` and `liveDotColor` (the only two users of green/red).
 - `.../ui/Format.kt`: pure formatting (formatPrice, formatSigned, formatPercent, changeSign, formatTimeAgo), typographic minus; one BigDecimal rounding step shared by text, sign and colour.
-- `.../ui/DesignScale.kt`: `DesignScale` (440 dp design width) and `LocalBackHook`.
-- `.../ui/MarketsBoardRoot.kt`: `MbTab` enum and the tabbed shell with hairline bottom bar; takes `MarketsUiState` + `MarketsActions` + `NewsUiState` from the caller.
+- `.../ui/DesignScale.kt`: `DesignScale` (440 dp design width), `LocalBackHook` and `LocalOpenUrl` (platform hook that opens an http(s) link; default no-op).
+- `.../ui/MarketsBoardRoot.kt`: `MbTab` enum and the tabbed shell with hairline bottom bar; takes `MarketsUiState` + `NewsUiState` + `MarketsActions` + `NewsActions` + `UiMode` from the caller; the tab bar steps aside for the Markets detail/add sheet and the News article.
 - `.../ui/charts/Charts.kt`: `LineChart` (optional dashed baseline), `BarChart`, `Sparkline`, `downsample`.
 - `.../ui/markets/MarketsUi.kt`: UI models (`QuoteRowUi` + `RowStatus`, `HeaderUi`, `DetailUi`, `AddUi`, `SearchRowUi`, `MarketsUiState`) and the `MarketsActions` interface (every user action; `None` default).
 - `.../ui/markets/UiMapper.kt`: pure mapping from `QuoteState` to rows, header ("Live"/"Delayed"/"Offline"/"Markets closed"), clock-skew flag and the detail model.
@@ -24,18 +24,23 @@
 - `.../ui/markets/QuoteRow.kt`: the row (name up to 2 lines + price, symbol/exchange + change, full-width sparkline strip, skeleton, stale/error status band with Retry, dimmed numbers), `GlanceRow`, `EditRow` with `EditAction` buttons, `ArrowButton` (spoken labels), `BackChevron`, `priceFontSizeSp`.
 - `.../ui/markets/DetailScreen.kt`: instrument detail (back, price, change, 1D/5D/1M/3M/1Y pills, line chart with previous-close baseline, `StatGrid`, Replace, Remove).
 - `.../ui/markets/AddSheet.kt`: full-screen add / replace sheet (search field, outcome message, "Add anyway", results with "Added" badge, suggestions).
+- `.../core/NewsTexts.kt`: `NewsText`: "now / 5m ago / 3h ago / 2d ago", "Updated 12 min ago", plain-language feed errors.
+- `.../core/Briefing.kt`: `Briefings.build`: the spoken market briefing (greeting, caveats, instruments in native currencies, up to 3 headlines, 110 word budget) as a list of `Utterance`s with pauses; pure text, no audio.
 - `.../core/Texts.kt`: `ErrorText` (plain-language reasons, rate-limit countdown), `AddText` (outcome messages), `ExchangeLabels` (Toronto to TSX, NasdaqGS to NASDAQ), `TypeLabels`, `ExchangeTime` (exchange-zone time text, ET/CT/MT/PT labels).
 - `.../core/MarketPhase.kt`: market open (REGULAR/PRE/POST) vs closed from `marketState` or the session window, for the header status.
 - `.../core/PollPolicy.kt`: poll interval per market phase (60 s live, 5 min PRE/POST, 30 min or next session start when closed); also the basis of the repository's market-aware stale limit.
 - `.../refresh/RefreshController.kt`: the refresh policy (per-phase intervals from `PollPolicy`, immediate on start/resume/symbol-SET change, resume-after-sleep rules, network-available pass, 15 s age recompute, pause when inactive, cooldown aware, never under 60 s per symbol, manual debounce), `Refresher`, `RefreshConfig`.
-- `.../refresh/ActiveGate.kt`: foreground gate (`isActive`, `resume`, `pause`, `launchWhileActive`), reusable by the M3 news poller.
+- `.../refresh/ActiveGate.kt`: foreground gate (`isActive`, `resume`, `pause`, `launchWhileActive`); gates the quote controller and the news poller.
+- `.../refresh/NewsPoller.kt`: news polling policy (hydrate cache, pass on resume, every 10 min while active, network-back retries failed feeds, config change retags and fetches, ages tick, debounced forced manual refresh) + `NewsRefresher`, `NewsPollConfig`.
 - `.../refresh/NetworkSignal.kt`: interface for "network became available" (Android implements it).
 - `.../ui/UiMode.kt`: `Normal` / `Glance` (M4 will drive it; M2 only renders it).
 - `.../data/MarketsData.kt`: watchlist + quotes + provider bundle; remove/replace/reset that also `forget`, `validateAndReplace`, `replaceUnverified`.
 - `.../data/repo/QuotesSource.kt`: interface of what UI and controller need from `QuoteRepository` (fakeable).
 - `.../data/store/Watchlist.kt`: interface implemented by `WatchlistStore` (fakeable).
-- `.../ui/news/NewsUi.kt`: `HeadlineUi`, `NewsUiState` and `NewsComingSoon` (honest placeholder until M3).
-- `.../ui/news/NewsScreen.kt`: stateless headlines list.
+- `.../ui/news/NewsUi.kt`: News UI models (`NewsUiState`, `NewsPhase` Loading/Ready/Empty/Error, `HeadlineRowUi`, `HeadlineDetailUi`, `NewsFilter`) and the `NewsActions` interface.
+- `.../ui/news/NewsMapper.kt`: pure `NewsState` to `NewsUiState` (filter, glance top 3, banner and stale rules, "3h ago", detail with the published time in the device zone).
+- `.../ui/news/NewsPresenter.kt`: `StateFlow<NewsUiState>` from the repository (`NewsSource`) + filter/open-article navigation + `UiMode` + a 30 s tick for the ages; glance closes an open article.
+- `.../ui/news/NewsScreen.kt`: News tab: header + status line, amber banner with Retry, All / My symbols switch, hairline headline rows (source, age, tags, 3-line title, 2-line summary), skeletons, empty and error states, glance rows, and the article detail with the Open article button (`LocalOpenUrl`).
 - `.../ui/settings/SettingsScreen.kt`: Settings placeholder (local-state switch, value rows, pill button).
 - `.../data/Clock.kt`: injectable clock: wall `nowMs` (persisted times, skew detection) and monotonic `monoMs` (in-process ages, throttling, cooldowns); never used for market timestamps.
 - `.../data/model/Models.kt`: `Instrument`, `WatchItem`, `ChartRange` (+ Yahoo range/interval), `SeriesPoint`, `Quote` (provider-time `asOfEpochMs`, `source`, session window, timezone, `priceHint`/`decimals`), `Currencies` (GBp to GBX etc), `ErrorKind` (incl. `ClockOrTls`), `FetchResult` (Ok/Err), `QuoteValidator` (price/series sanity rules).
@@ -53,12 +58,24 @@
 - `.../data/repo/QuoteState.kt`: `QuoteState`, `QuoteStatus` (Fresh/Stale/Loading/Error) and `RepoConfig` (tunables).
 - `.../data/repo/QuoteRepository.kt`: stale-while-revalidate quote repository: provider chain with fallback merge, cooldown/backoff, 4-way concurrency cap, network short-circuit, in-flight dedup, monotonic ages, clock skew, `forget`, cancellation safe.
 
+- `.../data/news/NewsModels.kt`: `FeedConfig`/`FeedKind`, `Headline`, `FeedState`/`FeedStatus`, `NewsOverall` (Loading/Fresh/Stale/Error), `NewsState`.
+- `.../data/news/PlainText.kt`: HTML to plain text (tags, scripts, comments, entities, whitespace, word-boundary clamp, em/en dashes to hyphens) and the entity table.
+- `.../data/news/FeedDates.kt`: RFC 822/1123 variants, ISO 8601 variants and epoch numbers; null when unusable.
+- `.../data/news/XmlText.kt`: bytes to text (BOM, declared encoding, HTTP charset) and the sloppy-XML repair (illegal characters, HTML entities, stray ampersands).
+- `.../data/news/FeedParser.kt`: hardened SAX parser for RSS 2.0, RSS 1.0 (RDF) and Atom; DOCTYPE refused, size/depth/item caps, http(s) links only, partial salvage, typed Parse errors.
+- `.../data/news/Dedupe.kt`: canonical URL, normalised title, token Dice similarity (looser when summaries are identical), merge keeping the earliest report and the union of tags.
+- `.../data/news/Relevance.kt`: `SymbolMatcher` (ticker upper case whole word, company names, distinctive first word) and `Relevance.labelOf`.
+- `.../data/news/FeedStore.kt`: `FeedStore` (`feeds.json` v1, fsync'd atomic writes, `.bak`, corrupt quarantine, newer-version read-only; add/remove/enable/rename/move/reset), `FeedSource`, `DefaultFeeds`, `FeedPlan` (effective feeds, auto per-symbol Yahoo feeds, cap 6).
+- `.../data/news/NewsCodec.kt`: JSON of one feed's cached items plus ETag/Last-Modified (`FeedSnapshot`), re-validated on read.
+- `.../data/news/NewsRepository.kt`: fetch (max 3 parallel), conditional GET, per-feed health and exponential backoff, offline short-circuit, merge/dedupe/retag/sort/cap/7-day cut, SWR cache hydrate, server `Date` offset, `StateFlow<NewsState>`.
+- `.../data/news/NewsSource.kt`: the small interface the presenter needs from the repository.
+
 ## app/ (Android)
 - `app/build.gradle.kts`: Android module, shared srcDir + font res.
 - `app/src/main/AndroidManifest.xml`: INTERNET + ACCESS_NETWORK_STATE only, portrait activity.
-- `app/src/main/java/com/marketsboard/MainActivity.kt`: immersive, keep-screen-on, sets fonts, provides `LocalBackHook`, shows the root with the presenter's state, sets `active` from onResume/onPause.
-- `app/src/main/java/com/marketsboard/AppGraph.kt`: hand-built dependency graph (fetcher, log, providers, cache in `filesDir/cache`, `WatchlistStore` in `filesDir/watchlist.json`, `QuoteRepository`, `MarketsData`); takes a `File`, so it is JVM-testable.
-- `app/src/main/java/com/marketsboard/AppRuntime.kt`: process-scoped `RefreshController` + `MarketsPresenter` on top of the graph; its `ActiveGate` is flipped by the Activity.
+- `app/src/main/java/com/marketsboard/MainActivity.kt`: immersive, keep-screen-on, sets fonts, provides `LocalBackHook`, shows the root with the presenters' states, provides `LocalOpenUrl` (ACTION_VIEW in try/catch, http(s) only), sets `active` from onResume/onPause.
+- `app/src/main/java/com/marketsboard/AppGraph.kt`: hand-built dependency graph (fetcher, log, providers, cache in `filesDir/cache`, `WatchlistStore` in `filesDir/watchlist.json`, `QuoteRepository`, `MarketsData`, plus `FeedStore` in `filesDir/feeds.json` and `NewsRepository` on the same cache); takes a `File`, so it is JVM-testable.
+- `app/src/main/java/com/marketsboard/AppRuntime.kt`: process-scoped `RefreshController` + `MarketsPresenter` and `NewsPoller` + `NewsPresenter` on top of the graph; its `ActiveGate` is flipped by the Activity.
 - `app/src/main/java/com/marketsboard/AndroidClock.kt`: production `Clock` (monotonic = `elapsedRealtime`, so ages include deep sleep).
 - `app/src/main/java/com/marketsboard/ConnectivityNetworkSignal.kt`: `NetworkSignal` from a ConnectivityManager default-network callback.
 - `app/src/main/java/com/marketsboard/MarketsBoardApplication.kt`: Application; builds `AppGraph` and `AppRuntime` (crash-proof, null on failure).
@@ -68,6 +85,9 @@
 - `app/src/test/kotlin/com/marketsboard/AppGraphTest.kt`: real wiring against fixtures (default watchlist quotes in CAD/USD, Stooq fallback, restart persistence, log hosts).
 - `app/src/test/kotlin/com/marketsboard/UiTestSupport.kt`: `VirtualClock` and `SplitClock` (test scheduler time; the latter can 'sleep' wall time only), `FakeQuotesSource` (records calls), `FakeNetwork`, `FakeProvider` (scripted quote/search, late search answers).
 - `app/src/test/kotlin/com/marketsboard/ui/UiMapperTest.kt`, `ui/MarketsPresenterTest.kt`, `refresh/RefreshControllerTest.kt`, `core/CoreTextsTest.kt`: M2 tests (row/header/detail mapping, editor and add/replace flow, search debounce, refresh policy with a fake clock, wording and exchange-time formatting).
+- `app/src/test/kotlin/com/marketsboard/data/news/`: M3 tests: `FeedParserTest` (RSS/Atom/RDF matrix, XXE, billion laughs, DOCTYPE, malformed, encodings, link filter), `PlainTextAndDatesTest`, `DedupeRelevanceTest`, `FeedStoreTest` (+ `FeedPlanTest`), `NewsRepositoryTest` (SWR, parallel cap, conditional GET, backoff, cache corruption, age cutoff, cap, tagging), `NewsTestSupport.kt` (fakes and XML builders).
+- `app/src/test/kotlin/com/marketsboard/refresh/NewsPollerTest.kt`, `ui/NewsUiTest.kt` (mapper, time text, presenter), `core/BriefingTest.kt`: poller policy with virtual time, UI mapping, briefing text.
+- `app/src/test/resources/fixtures/news/`: RSS/Atom/RDF samples, hostile documents (XXE, billion laughs, DOCTYPE), truncated and HTML pages, ISO-8859-1, windows-1252, UTF-16 and UTF-8 BOM files, sloppy entities. Written from knowledge of the formats, NOT captured live.
 - `app/src/test/kotlin/com/marketsboard/data/StalenessTest.kt`: market-aware stale limits, `ageShift`, `PollPolicy`.
 - `app/src/test/kotlin/com/marketsboard/data/TestSupport.kt`: `FakeClock`, `FakeHttp`, `ScriptedProvider`, `quoteOf`, fixture loader.
 - `.../data/AuditFixesTest.kt` (M1 audit regressions: fallback merge, clocks, short-circuit, backoff, currencies, watchlist backup recovery, forget), `.../data/ModelsTest.kt`, `YahooProviderTest.kt`, `StooqProviderTest.kt`, `FileJsonCacheTest.kt`, `FetchLogTest.kt`, `WatchlistStoreTest.kt`, `QuoteRepositoryTest.kt`: data layer tests.
@@ -79,14 +99,17 @@
 - `sandbox/run-sandbox.bat`: Windows launcher for the jar.
 - `sandbox/src/main/kotlin/com/marketsboard/sandbox/Main.kt`: window entry point.
 - `.../sandbox/SandboxApp.kt`: 9:16 head-unit frame running the real presenter and UI + control panel.
-- `.../sandbox/SandboxEnv.kt`: real presenter, controller, repository and temp-dir watchlist on the fake provider; `SandboxTime` (speed-up, device clock skew), hotspot drop, watchlist reset.
+- `.../sandbox/SandboxEnv.kt`: real presenter, controller, repository and temp-dir watchlist on the fake provider, plus the real news repository, poller and presenter on `FakeFeedFetcher`, a simulated "network is back" signal and `openUrl` recording; `SandboxTime` (speed-up, device clock skew), hotspot drop, watchlist reset.
 - `.../sandbox/ControlPanel.kt`: panel in the app's own style (behaviour, latency, clock skew, app active, time speed, hotspot drop, reset).
 - `.../sandbox/ScreenshotFixtures.kt`: deterministic Markets states (fake provider at a fixed time through `UiMapper`) for screenshots and render tests.
 - `.../sandbox/Fonts.kt`: `loadDashFonts()` from classpath.
 - `.../sandbox/FakeMarketDataProvider.kt`: deterministic fake provider (any symbol, currency inference, exchange time zones, latency, behaviours Normal/Slow/Offline/RateLimited/PartialFailure/BadData, 27-entry search catalogue).
-- `.../sandbox/Screenshots.kt`: headless PNGs (19 Markets, detail, editor, add, glance, empty and tab screens) to `sandbox/build/screenshots/`.
+- `.../sandbox/FakeFeedFetcher.kt`: fake news servers (RSS 2.0 and Atom with CDATA, entities, odd dates, overlapping stories, watchlist stories, ETag/304), behaviours Normal/Slow/Offline/MalformedFeeds/OneFeedFailing, `addBreaking()`.
+- `.../sandbox/Screenshots.kt`: headless PNGs (Markets, detail, editor, add, glance, News in nine states, settings) to `sandbox/build/screenshots/`.
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/RenderTest.kt`: headless render tests (long prices neither wrap nor clip at 440 dp, greyscale unless price moved, tabs render).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/MarketsRenderTest.kt`: 440 dp layout checks (names, 6-digit and 4-decimal prices, gutters, every screen), tab bar hiding, Glance, pointer tests (taps never pass through an overlay) and the palette test (only green/red/amber/greyscale).
+- `sandbox/src/test/kotlin/com/marketsboard/sandbox/NewsRenderTest.kt`: News at 440 dp (long titles, unbreakable words, tag chips, every state), greyscale-plus-amber palette, tab bar and back hook, tap tests (list, glance, article never leaks to the list, Open article hook, Retry).
+- `sandbox/src/test/kotlin/com/marketsboard/sandbox/FakeFeedFetcherTest.kt` and `SandboxNewsEnvTest.kt`: the fake servers parse with the real parser; news end to end (load, filter, article, offline and recovery, breaking headline, failing and malformed feeds).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/SandboxEnvTest.kt`: presenter + controller + repository + fake provider end to end (real time).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/JvmHttpFetcherTest.kt`: `JvmHttpFetcher` against a local `com.sun.net.httpserver.HttpServer` (lives here because that API is not on the Android unit-test classpath).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/FakeMarketDataProviderTest.kt`: fake provider behaviours.
