@@ -83,10 +83,11 @@ fun MarketsBoardRoot(
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(glance) { if (glance) { focus.clearFocus(force = true); keyboard?.hide() } }
     DesignScale {
+        val pane = LocalPaneSpec.current
         Column(Modifier.fillMaxSize().background(Dash.bg)) {
             // Detail, the article and the add sheet are full-screen: the strip and tab bar step aside so their content is not cut off.
             val fullScreen = !glance && ((shown == MbTab.Markets && (markets.detail != null || markets.add != null)) || (shown == MbTab.News && news.detail != null))
-            if (!fullScreen || briefing.visible) TopStrip(glance, driving, briefing, briefingActions)
+            if (!fullScreen || briefing.visible) TopStrip(glance, driving, briefing, briefingActions, pane)
             AnimatedVisibility(
                 visible = !glance && briefing.visible,
                 enter = fadeIn(tween(200)) + expandVertically(tween(200)),
@@ -101,11 +102,11 @@ fun MarketsBoardRoot(
                     MbTab.Settings -> SettingsScreen(if (settings.mode == m) settings else settings.copy(mode = m), actions = settingsActions)
                 }
             }
-            if (glance) Box(Modifier.animateContentSize(tween(220)).height(glanceLowerHeight(briefing, driving.parkedPrompt))) {
+            if (glance) Box(Modifier.animateContentSize(tween(220)).height(glanceLowerHeight(briefing, driving.parkedPrompt, pane))) {
                 GlanceLower(briefing, briefingActions, parkedPrompt = driving.parkedPrompt, onConfirmParked = drivingActions::onConfirmParked)
             }
             if (!fullScreen) Hairline()
-            if (!fullScreen) Row(Modifier.fillMaxWidth().height(60.dp)) {
+            if (!fullScreen) Row(Modifier.fillMaxWidth().height(pane.pick(60, 48).dp)) {
                 MbTab.entries.forEach { t ->
                     val selected = t == shown
                     // Settings stays in place but dimmed and dead while driving: nothing to tap, nothing to reach.
@@ -132,11 +133,12 @@ fun MarketsBoardRoot(
  * on the right ("Brief me", "Stop" or "Close"). Glance: a small dim "Driving" label only (the big control is in the lower area).
  */
 @Composable
-private fun TopStrip(glance: Boolean, driving: DrivingStatus, briefing: BriefingUiState, actions: BriefingActions) {
-    Row(Modifier.fillMaxWidth().height(if (glance) 30.dp else 44.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun TopStrip(glance: Boolean, driving: DrivingStatus, briefing: BriefingUiState, actions: BriefingActions, pane: PaneSpec) {
+    val height = if (glance) pane.pick(30, 24, 22) else pane.pick(44, 38, 38)
+    Row(Modifier.fillMaxWidth().height(height.dp).padding(horizontal = pane.pick(20, 16).dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) {
             when {
-                glance -> Label("Driving", Modifier.padding(top = 6.dp))
+                glance -> Label("Driving", Modifier.padding(top = pane.pick(6, 2).dp))
                 driving.reason == DrivingReason.Passenger -> Label("Passenger mode")
             }
         }

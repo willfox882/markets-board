@@ -53,6 +53,8 @@ fun SandboxApp() {
     val briefing by env.briefing.state.collectAsState()
     val settings by env.settingsPresenter.state.collectAsState()
     val driving by env.driving.status.collectAsState()
+    // Pane shape: height / width of the simulated pane (9:16 full screen by default; see PaneShape).
+    var ratio by remember { mutableStateOf(PaneShape.Full.ratio) }
     MarketsBoardTheme {
         CompositionLocalProvider(
             LocalBackHook provides { enabled, onBack -> SideEffect { backCallback = if (enabled) onBack else null } },
@@ -65,9 +67,10 @@ fun SandboxApp() {
             ) {
                 // ---- the head unit screen (same aspect as the 14.4" portrait display) ----
                 BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().padding(20.dp), contentAlignment = Alignment.Center) {
-                    val h = minOf(maxHeight, maxWidth * 16f / 9f)
+                    // The screen inside the 8 dp bezel has exactly the chosen aspect; the window stays freely resizable.
+                    val innerW = minOf(maxWidth - 16.dp, (maxHeight - 16.dp) / ratio)
                     Box(
-                        Modifier.width(h * 9f / 16f).height(h)
+                        Modifier.width(innerW + 16.dp).height(innerW * ratio + 16.dp)
                             .border(8.dp, Dash.surfaceHigh, RoundedCornerShape(22.dp))
                             .padding(8.dp).clip(RoundedCornerShape(14.dp)),
                     ) {
@@ -78,7 +81,7 @@ fun SandboxApp() {
                         )
                     }
                 }
-                ControlPanel(env)
+                ControlPanel(env, ratio = ratio, onRatio = { ratio = it })
             }
         }
     }

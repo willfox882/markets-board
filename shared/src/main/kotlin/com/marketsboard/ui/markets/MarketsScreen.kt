@@ -26,8 +26,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marketsboard.core.ErrorText
@@ -36,6 +38,7 @@ import com.marketsboard.ui.DashDialog
 import com.marketsboard.ui.Dot
 import com.marketsboard.ui.Hairline
 import com.marketsboard.ui.LocalBackHook
+import com.marketsboard.ui.LocalPaneSpec
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
 import com.marketsboard.ui.ScreenTitle
@@ -91,7 +94,27 @@ private fun Modifier.consumeTouches(): Modifier = pointerInput(Unit) {
 @Composable
 private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listState: LazyListState, gpsUnknown: Boolean = false) {
     val glance = state.mode == UiMode.Glance
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), state = listState, verticalArrangement = Arrangement.spacedBy(0.dp)) {
+    val pane = LocalPaneSpec.current
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = pane.pick(20, 16).dp), state = listState, verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        if (pane.compact) {
+            // Compact: title (none when tiny, the tab says it), Refresh and Edit on one row, the status on one line under it, no section header.
+            item {
+                Row(Modifier.fillMaxWidth().padding(top = pane.pick(18, 8, 4).dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (pane.tiny) HeaderStatus(state.header, Modifier.weight(1f)) else ScreenTitle("Markets", Modifier.weight(1f))
+                    if (state.quotes.isNotEmpty()) {
+                        TextAction("Refresh", if (state.refreshing) ({}) else actions::onRefresh, color = if (state.refreshing) Dash.faint else Dash.text)
+                        TextAction(if (state.editMode) "Done" else "Edit", actions::onToggleEdit, Modifier.offset(x = 10.dp), color = Dash.text)
+                    }
+                }
+                if (!pane.tiny) HeaderStatus(state.header)
+                if (gpsUnknown) GpsUnknownLine()
+            }
+            if (state.clockSkew) item { ClockBanner() }
+            if (state.notice.isNotEmpty()) {
+                item { Text(state.notice, color = Dash.amber, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 6.dp)) }
+            }
+            item { Hairline(Modifier.padding(top = 6.dp)) }
+        } else {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                 ScreenTitle("Markets", Modifier.weight(1f))
@@ -114,6 +137,7 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listSt
                 }
             }
             Hairline(Modifier.padding(top = 4.dp))
+        }
         }
         if (state.quotes.isEmpty()) {
             item { if (glance) Text("No symbols yet", color = Dash.dim, fontSize = 18.sp, modifier = Modifier.padding(vertical = 40.dp)) else EmptyState(actions::onAddOpen) }
@@ -138,11 +162,11 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listSt
             }
             if (state.editMode && !glance) {
                 item {
-                    PillButton("Add symbol", actions::onAddOpen, Modifier.fillMaxWidth().padding(top = 20.dp), kind = PillKind.Primary)
+                    PillButton("Add symbol", actions::onAddOpen, Modifier.fillMaxWidth().padding(top = pane.pick(20, 12).dp), kind = PillKind.Primary)
                 }
             }
         }
-        item { Spacer(Modifier.height(28.dp)) }
+        item { Spacer(Modifier.height(pane.pick(28, 16).dp)) }
     }
 }
 
@@ -152,6 +176,8 @@ private fun WatchlistPage(state: MarketsUiState, actions: MarketsActions, listSt
  */
 @Composable
 private fun GlancePage(state: MarketsUiState) {
+    val pane = LocalPaneSpec.current
+    if (pane.compact) { GlancePageCompact(state, pane.tiny); return }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Column(Modifier.padding(top = 12.dp)) {
             ScreenTitle("Markets")
@@ -176,6 +202,47 @@ private fun GlancePage(state: MarketsUiState) {
     }
 }
 
+/** Height of one compact Glance row (name at 20 sp, price and percent stacked at the right). */
+private val GLANCE_ROW_COMPACT = 56.dp
+/** Room for the "N more on the full list" line under the rows. */
+private val GLANCE_MORE_LINE = 28.dp
+
+/**
+ * Glance in a compact or tiny pane: a one-line header (title and status; status only when [tiny]), then as many of the
+ * (at most [GLANCE_MAX]) rows as fit above the lower area, with "N more" for the rest. The lower area (Brief me / Stop and
+ * the caption) is laid out by the shell and is never pushed off screen: this page takes whatever is left, and clips.
+ */
+@Composable
+private fun GlancePageCompact(state: MarketsUiState, tiny: Boolean) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = if (tiny) 2.dp else 6.dp).height(if (tiny) 28.dp else 36.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!tiny) ScreenTitle("Markets")
+            HeaderStatus(state.header, Modifier.weight(1f).padding(start = if (tiny) 0.dp else 12.dp), end = !tiny)
+        }
+        if (state.clockSkew && !tiny) ClockBanner(Modifier.padding(top = 0.dp))
+        Hairline(Modifier.padding(top = 2.dp))
+        if (state.quotes.isEmpty()) {
+            Text("No symbols yet", color = Dash.dim, fontSize = 18.sp, modifier = Modifier.padding(vertical = 14.dp))
+        } else {
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                val total = state.quotes.size
+                val cap = minOf(GLANCE_MAX, total)
+                // Rows that fit: all of them when there is room, else leave room for the "N more" line.
+                val fitAll = (maxHeight / GLANCE_ROW_COMPACT).toInt()
+                val n = if (fitAll >= total && total <= GLANCE_MAX) total else ((maxHeight - GLANCE_MORE_LINE) / GLANCE_ROW_COMPACT).toInt().coerceIn(0, cap)
+                val more = total - n
+                Column {
+                    state.quotes.take(n).forEach { q -> Column { GlanceRow(q, Modifier.height(GLANCE_ROW_COMPACT - 1.dp), compact = true); Hairline() } }
+                    if (more > 0) Text(
+                        if (n == 0) "$more on the full list" else "$more more on the full list", color = Dash.dim, fontSize = 13.sp,
+                        maxLines = 1, modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 private const val GLANCE_MAX = 4
 
 /** Amber line under the header while the app cannot tell whether the truck moves (no permission, no fix, location off). */
@@ -189,7 +256,7 @@ fun GpsUnknownLine(modifier: Modifier = Modifier) {
 
 /** "● Live  ·  Updated 12:41 PM ET": dot colour carries the state (green live, grey closed or loading, amber otherwise). */
 @Composable
-fun HeaderStatus(h: HeaderUi, modifier: Modifier = Modifier) {
+fun HeaderStatus(h: HeaderUi, modifier: Modifier = Modifier, end: Boolean = false) {
     if (h.kind == LiveKind.None) return
     val dot: Color = when (h.kind) {
         LiveKind.Live -> liveDotColor()
@@ -201,11 +268,12 @@ fun HeaderStatus(h: HeaderUi, modifier: Modifier = Modifier) {
         LiveKind.Live -> Dash.text
         else -> Dash.dim
     }
-    Row(modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = if (end) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
         Dot(dot, 8)
-        Text(h.label, color = labelColor, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+        val size = LocalPaneSpec.current.pick(14, 13).sp
+        Text(h.label, color = labelColor, fontSize = size, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 8.dp))
         if (h.updated.isNotEmpty()) {
-            Text("  ·  ${h.updated}", color = Dash.dim, fontSize = 14.sp, maxLines = 1)
+            Text("  ·  ${h.updated}", color = Dash.dim, fontSize = size, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         }
     }
 }
@@ -214,7 +282,7 @@ fun HeaderStatus(h: HeaderUi, modifier: Modifier = Modifier) {
 @Composable
 fun ClockBanner(modifier: Modifier = Modifier) {
     Row(
-        modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(10.dp)).background(Dash.surface).padding(horizontal = 12.dp, vertical = 9.dp),
+        modifier.fillMaxWidth().padding(top = LocalPaneSpec.current.pick(12, 6).dp).clip(RoundedCornerShape(10.dp)).background(Dash.surface).padding(horizontal = 12.dp, vertical = LocalPaneSpec.current.pick(9, 6).dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Dot(Dash.amber, 6)
@@ -224,11 +292,12 @@ fun ClockBanner(modifier: Modifier = Modifier) {
 
 @Composable
 fun EmptyState(onAdd: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().padding(vertical = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    val pane = LocalPaneSpec.current
+    Column(modifier.fillMaxWidth().padding(vertical = pane.pick(56, 20, 10).dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Your watchlist is empty", color = Dash.text, fontSize = 22.sp, fontWeight = FontWeight.Medium)
         Text(
             "Follow the stocks, funds, indices and rates you care about. Each one shows in its own currency.",
-            color = Dash.dim, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 10.dp, bottom = 26.dp, start = 12.dp, end = 12.dp),
+            color = Dash.dim, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = pane.pick(10, 6).dp, bottom = pane.pick(26, 12).dp, start = 12.dp, end = 12.dp),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         PillButton("Add your first symbol", onAdd, kind = PillKind.Primary)

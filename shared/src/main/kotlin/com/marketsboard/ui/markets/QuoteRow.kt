@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.Dot
+import com.marketsboard.ui.LocalPaneSpec
 import com.marketsboard.ui.NO_VALUE
 import com.marketsboard.ui.Numeral
 import com.marketsboard.ui.Skeleton
@@ -83,16 +84,17 @@ fun QuoteRow(
     val color = if (dim) Dash.dim else changeColor(q.changePct)
     val priceText = q.price?.let { formatPrice(it, q.decimals) }
     var valueLayout: TextLayoutResult? = null
-    Column(modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp)) {
+    val pane = LocalPaneSpec.current
+    Column(modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = pane.pick(12, 8, 7).dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Text(
-                q.name, color = Dash.text, fontSize = 18.sp, lineHeight = 23.sp, fontWeight = FontWeight.Medium, maxLines = 2,
+                q.name, color = Dash.text, fontSize = pane.pick(18, 17).sp, lineHeight = pane.pick(23, 21).sp, fontWeight = FontWeight.Medium, maxLines = pane.pick(2, 2, 1),
                 overflow = TextOverflow.Ellipsis, onTextLayout = onNameLayout,
-                modifier = Modifier.weight(1f).padding(end = 12.dp, top = 3.dp),
+                modifier = Modifier.weight(1f).padding(end = 12.dp, top = pane.pick(3, 2).dp),
             )
             when {
                 priceText != null -> Numeral(
-                    priceText, q.currency, size = priceFontSizeSp(priceText).sp, color = if (dim) Dash.dim else Dash.text,
+                    priceText, q.currency, size = (priceFontSizeSp(priceText) - pane.pick(0, 2)).sp, color = if (dim) Dash.dim else Dash.text,
                     onValueLayout = { valueLayout = it }, onUnitLayout = { u -> valueLayout?.let { onPriceLayout(it, u) } },
                 )
                 q.status is RowStatus.Loading -> Skeleton(96.dp, 26.dp, Modifier.padding(top = 2.dp))
@@ -110,9 +112,9 @@ fun QuoteRow(
                 q.status is RowStatus.Loading -> Skeleton(64.dp, 14.dp)
             }
         }
-        if (priceText != null && q.series.size >= 2) {
+        if (priceText != null && q.series.size >= 2 && !pane.tiny) {
             Sparkline(
-                q.series, Modifier.padding(top = 8.dp).fillMaxWidth().height(26.dp),
+                q.series, Modifier.padding(top = pane.pick(8, 6).dp).fillMaxWidth().height(pane.pick(26, 20).dp),
                 color = color, baseline = q.prevClose?.toFloat(),
             )
         }
@@ -201,6 +203,7 @@ fun EditRow(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (LocalPaneSpec.current.compact) { EditRowCompact(q, index, count, onMove, onRename, onReplace, onRemove, modifier); return }
     Column(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = 10.dp)) {
@@ -215,6 +218,27 @@ fun EditRow(
             ArrowButton(up = false, enabled = index < count - 1, onClick = { onMove(1) }, description = "Move ${q.symbol} down")
         }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            EditAction("Rename", onRename, Modifier.weight(1f))
+            EditAction("Replace", onReplace, Modifier.weight(1f))
+            EditAction("Remove", onRemove, Modifier.weight(1f))
+        }
+    }
+}
+
+/**
+ * Edit-mode row for a compact pane: the name and symbol on top, then ONE row of 48 dp targets: move up, move down, Rename,
+ * Replace, Remove.
+ */
+@Composable
+private fun EditRowCompact(
+    q: QuoteRowUi, index: Int, count: Int, onMove: (delta: Int) -> Unit, onRename: () -> Unit, onReplace: () -> Unit, onRemove: () -> Unit, modifier: Modifier,
+) {
+    Column(modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
+        Text(q.name, color = Dash.text, fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(secondaryLine(q.symbol, q.exchange), color = Dash.dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 1.dp))
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            ArrowButton(up = true, enabled = index > 0, onClick = { onMove(-1) }, description = "Move ${q.symbol} up")
+            ArrowButton(up = false, enabled = index < count - 1, onClick = { onMove(1) }, description = "Move ${q.symbol} down")
             EditAction("Rename", onRename, Modifier.weight(1f))
             EditAction("Replace", onReplace, Modifier.weight(1f))
             EditAction("Remove", onRemove, Modifier.weight(1f))

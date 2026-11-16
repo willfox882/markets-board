@@ -3,6 +3,7 @@ package com.marketsboard.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,6 +22,7 @@ import com.marketsboard.data.settings.AppSettings
 import com.marketsboard.speech.SpeakerAvailability
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.Hairline
+import com.marketsboard.ui.LocalPaneSpec
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
 import com.marketsboard.ui.ScreenTitle
@@ -45,10 +47,13 @@ private val DATA_SOURCES = listOf(
 fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, actions: SettingsActions = SettingsActions.None) {
     val s = state.settings
     val d = state.driving
-    LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-        item { ScreenTitle("Settings", Modifier.padding(top = 18.dp, bottom = 6.dp)) }
+    val pane = LocalPaneSpec.current
+    val sectionGap = pane.pick(30, 16).dp
+    LazyColumn(modifier.fillMaxSize().padding(horizontal = pane.pick(20, 16).dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        // Tiny: no title (the tab bar says Settings).
+        item { if (pane.tiny) Spacer(Modifier.height(4.dp)) else ScreenTitle("Settings", Modifier.padding(top = pane.pick(18, 8).dp, bottom = pane.pick(6, 0).dp)) }
 
-        item { SectionHeader("Driving", Modifier.padding(top = 14.dp)) }
+        item { SectionHeader("Driving", Modifier.padding(top = pane.pick(14, 6).dp)) }
         item {
             Column {
                 Hairline(Modifier.padding(top = 4.dp))
@@ -65,14 +70,14 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
                 if (why != DrivingTexts.statusValue(d)) {
                     Text(
                         why, color = if (d.unknown || !state.locationGranted) Dash.amber else Dash.dim, fontSize = 14.sp, lineHeight = 19.sp,
-                        fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 12.dp),
+                        fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = pane.pick(12, 8).dp),
                     )
                 }
                 Text(
                     "Above 5 km/h Markets Board shows only names, prices and the top headlines, and this screen is locked. " +
                         "It opens again after 10 seconds at a stop, so a red light does not unlock it. If the GPS signal drops while you are moving, it stays locked. " +
                         "The briefing works at any speed.",
-                    color = Dash.dim, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 8.dp),
+                    color = Dash.dim, fontSize = 13.sp, lineHeight = pane.pick(19, 18).sp, modifier = Modifier.padding(top = pane.pick(8, 6).dp),
                 )
                 if (!state.locationGranted) {
                     Text(
@@ -84,7 +89,7 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
             }
         }
 
-        item { SectionHeader("Briefing", Modifier.padding(top = 30.dp)) }
+        item { SectionHeader("Briefing", Modifier.padding(top = sectionGap)) }
         item {
             Column {
                 Hairline(Modifier.padding(top = 4.dp))
@@ -108,7 +113,7 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
             }
         }
 
-        item { SectionHeader("About", Modifier.padding(top = 30.dp)) }
+        item { SectionHeader("About", Modifier.padding(top = sectionGap)) }
         item {
             Column {
                 Hairline(Modifier.padding(top = 4.dp))
@@ -117,7 +122,7 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
                 ValueRow("Build", state.about.build.ifEmpty { "-" })
                 Hairline()
                 DATA_SOURCES.forEach { (what, who) ->
-                    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = pane.pick(12, 8).dp)) {
                         Text(what, color = Dash.dim, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         Text(who, color = Dash.text, fontSize = 15.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 2.dp))
                     }
@@ -125,7 +130,7 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
                 }
                 Text(
                     "Markets data may be delayed. Prices are shown in each instrument's own currency.",
-                    color = Dash.dim, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 14.dp, bottom = 32.dp),
+                    color = Dash.dim, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = pane.pick(14, 10).dp, bottom = pane.pick(32, 16).dp),
                 )
             }
         }
@@ -135,7 +140,7 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
 /** "Speech rate   -   1.00x   +": two big text actions around the value, steps of 0.05 within 0.8 to 1.2. */
 @Composable
 private fun RateRow(rate: Float, onRate: (Float) -> Unit) {
-    Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(LocalPaneSpec.current.pick(64, 56).dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("Speech rate", color = Dash.text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
             Text("Slower is clearer on a noisy road", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))

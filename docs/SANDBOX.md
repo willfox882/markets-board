@@ -10,7 +10,7 @@ Build it yourself: `./gradlew :sandbox:sandboxJar` -> `sandbox/build/libs/market
 The jar bundles the Windows and Linux Skia renderers only (no macOS), so it runs on Windows and Linux with just `java -jar`. `./gradlew :sandbox:run` uses the host OS renderer.
 
 ## What you get (M2 and M3)
-- Left: the 14.4" portrait head unit as a 9:16 frame (resizable window) running the REAL presenter, refresh controller, repository and watchlist store against `FakeMarketDataProvider` (temp-dir store, nothing touches the network). Right: the control panel.
+- Left: the 14.4" portrait head unit as a frame of the chosen pane shape (Full 9:16 by default; the control panel's "Pane shape" chips and slider give the top/bottom half 9:8 and the short strip 3:2; resizable window) running the REAL presenter, refresh controller, repository and watchlist store against `FakeMarketDataProvider` (temp-dir store, nothing touches the network). Right: the control panel.
 - Esc triggers the back hook (closes dialogs, add sheet, detail, edit mode, in that order).
 - Control panel:
   - **Market behaviour**: Normal, Slow, Offline, Rate limited, Partial failure, Bad data. Press Refresh in the app (or wait for the next poll) to see rows go stale, dim and amber, then recover.

@@ -108,5 +108,27 @@ fun main(args: Array<String>) {
     shot("markets_glance_parked_prompt", F.glance(), driving = DrivingStatus(UiMode.Glance, DrivingReason.NoSignalWhileMoving, parkedPrompt = true))
     shot("markets_glance_checking", F.glance(), driving = DrivingStatus(UiMode.Glance, DrivingReason.Checking))
     shot("passenger_label", F.normal(), driving = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0))
+
+    // ---- pane-aware layouts: the main screens again at a top/bottom half (810x720) and a short strip (810x540) ----
+    for ((shape, sfx) in listOf(PaneShape.Half to "half", PaneShape.Strip to "strip")) {
+        fun p(
+            name: String, state: MarketsUiState, tab: MbTab = MbTab.Markets, news: NewsUiState = NewsUiState(),
+            driving: DrivingStatus = parked, briefing: BriefingUiState = BriefingUiState(), settings: SettingsUiState = SettingsUiState(),
+        ) = shot("${name}_$sfx", state, tab, news, shape.shotWidth, shape.shotHeight, driving, briefing, settings)
+        p("markets_normal", F.normal())
+        p("markets_skew_stale", F.skewAndStale())
+        p("markets_editor", F.editor())
+        p("add_results", F.addWithResults())
+        p("detail_1d", F.detail("XEQT.TO", ChartRange.D1))
+        p("news", F.normal(), MbTab.News, F.news())
+        p("news_detail", F.normal(), MbTab.News, F.newsDetail())
+        p("news_stale", F.normal(), MbTab.News, F.newsStale())
+        p("settings", F.normal(), MbTab.Settings, settings = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.1.0", "debug 1")))
+        p("markets_glance", F.glance(), driving = moving)
+        p("news_glance", F.glance(), MbTab.News, F.newsGlance(), driving = moving)
+        p("briefing_normal_speaking", F.normal(), briefing = speaking)
+        p("briefing_glance_speaking", F.glance(), driving = moving, briefing = speaking)
+        p("markets_glance_parked_prompt", F.glance(), driving = DrivingStatus(UiMode.Glance, DrivingReason.NoSignalWhileMoving, parkedPrompt = true))
+    }
     println("done")
 }

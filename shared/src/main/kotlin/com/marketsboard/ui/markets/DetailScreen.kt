@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.marketsboard.data.model.ChartRange
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.Dot
+import com.marketsboard.ui.LocalPaneSpec
 import com.marketsboard.ui.Numeral
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
@@ -41,10 +42,11 @@ import com.marketsboard.ui.formatPrice
 @Composable
 fun DetailScreen(d: DetailUi, actions: MarketsActions, modifier: Modifier = Modifier) {
     val color = changeColor(d.changePct)
-    LazyColumn(modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+    val pane = LocalPaneSpec.current
+    LazyColumn(modifier.padding(horizontal = pane.pick(20, 16).dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
         item {
             Row(
-                Modifier.padding(top = 12.dp).heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = actions::onCloseDetail).padding(end = 14.dp),
+                Modifier.padding(top = pane.pick(12, 4).dp).heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = actions::onCloseDetail).padding(end = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BackChevron(Modifier.padding(start = 6.dp, end = 10.dp))
@@ -53,16 +55,16 @@ fun DetailScreen(d: DetailUi, actions: MarketsActions, modifier: Modifier = Modi
         }
         item {
             Text(
-                d.name, color = Dash.text, fontSize = 24.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 10.dp),
+                d.name, color = Dash.text, fontSize = pane.pick(24, 20).sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = pane.pick(10, 2).dp),
             )
-            Text(secondaryLine(d.symbol, d.exchange), color = Dash.dim, fontSize = 14.sp, modifier = Modifier.padding(top = 3.dp))
+            Text(secondaryLine(d.symbol, d.exchange), color = Dash.dim, fontSize = pane.pick(14, 13).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = pane.pick(3, 1).dp))
         }
         item {
-            Column(Modifier.padding(top = 18.dp)) {
+            Column(Modifier.padding(top = pane.pick(18, 4).dp)) {
                 if (d.price != null) {
-                    Numeral(formatPrice(d.price, d.decimals), d.currency, size = 44.sp)
-                    Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Numeral(formatPrice(d.price, d.decimals), d.currency, size = pane.pick(44, 34, 30).sp)
+                    Row(Modifier.padding(top = pane.pick(6, 2).dp), verticalAlignment = Alignment.CenterVertically) {
                         ChangeLine(d.change, d.changePct, d.refClose != null, d.decimals, color, size = 17)
                         Text("  ${d.rangeLabel}", color = Dash.dim, fontSize = 15.sp)
                     }
@@ -76,12 +78,13 @@ fun DetailScreen(d: DetailUi, actions: MarketsActions, modifier: Modifier = Modi
         }
         item {
             if (d.chart == ChartLoad.Ready && d.rangeHigh != null && d.rangeLow != null) {
-                Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = pane.pick(16, 6).dp)) {
                     Text("High ${formatPrice(d.rangeHigh, d.decimals)}", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     Text("Low ${formatPrice(d.rangeLow, d.decimals)}", color = Dash.dim, fontSize = 13.sp)
                 }
             }
-            Box(Modifier.fillMaxWidth().padding(top = if (d.chart == ChartLoad.Ready) 8.dp else 16.dp).height(if (d.chart == ChartLoad.Ready) 170.dp else 110.dp)) {
+            val ready = d.chart == ChartLoad.Ready
+            Box(Modifier.fillMaxWidth().padding(top = if (ready) pane.pick(8, 4).dp else pane.pick(16, 8).dp).height((if (ready) pane.pick(170, 84, 76) else pane.pick(110, 76, 66)).dp)) {
                 when (d.chart) {
                     ChartLoad.Ready -> LineChart(
                         d.series, color = color, fill = false, baseline = d.baseline,
@@ -107,7 +110,7 @@ fun DetailScreen(d: DetailUi, actions: MarketsActions, modifier: Modifier = Modi
         }
         if (d.chart == ChartLoad.Ready && d.chartStart.isNotEmpty()) {
             item {
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = pane.pick(8, 4).dp)) {
                     Text(d.chartStart, color = Dash.dim, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     Text(d.chartEnd, color = Dash.dim, fontSize = 12.sp)
                 }
@@ -122,15 +125,15 @@ fun DetailScreen(d: DetailUi, actions: MarketsActions, modifier: Modifier = Modi
                 }
             }
         }
-        item { RangePills(d.range, actions::onSelectRange, Modifier.padding(top = 14.dp)) }
+        item { RangePills(d.range, actions::onSelectRange, Modifier.padding(top = pane.pick(14, 8).dp)) }
         item {
             StatGrid(
                 d.stats.map { StatItem(it.label, it.value, it.unit) },
-                Modifier.padding(top = 22.dp), columns = 2, valueSize = 20.sp,
+                Modifier.padding(top = pane.pick(22, 10).dp), columns = pane.pick(2, 3), valueSize = pane.pick(20, 18).sp,
             )
         }
         item {
-            Column(Modifier.padding(top = 22.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(top = pane.pick(22, 10).dp, bottom = pane.pick(28, 14).dp), verticalArrangement = Arrangement.spacedBy(pane.pick(12, 8).dp)) {
                 PillButton("Replace", { actions.onReplaceOpen(d.symbol) }, Modifier.fillMaxWidth(), kind = PillKind.Secondary)
                 PillButton("Remove from watchlist", { actions.onAskRemove(d.symbol) }, Modifier.fillMaxWidth(), kind = PillKind.Secondary)
             }
@@ -145,10 +148,11 @@ fun RangePills(selected: ChartRange, onSelect: (ChartRange) -> Unit, modifier: M
         modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(Dash.surfaceHigh).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        val pillHeight = LocalPaneSpec.current.pick(44, 40)
         ChartRange.entries.forEach { r ->
             val on = r == selected
             Box(
-                Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(50)).background(if (on) Dash.text else Dash.surfaceHigh)
+                Modifier.weight(1f).height(pillHeight.dp).clip(RoundedCornerShape(50)).background(if (on) Dash.text else Dash.surfaceHigh)
                     .clickable { onSelect(r) },
                 contentAlignment = Alignment.Center,
             ) {

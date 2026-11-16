@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -17,13 +18,17 @@ val LocalBackHook = staticCompositionLocalOf<@Composable (enabled: Boolean, onBa
 
 /**
  * Lays everything out as if the screen were [designWidthDp] wide, whatever the real pixel density is.
- * Head units ship with arbitrary density settings; this keeps the UI proportions identical everywhere.
+ * Head units ship with arbitrary density settings; this keeps the UI proportions identical everywhere. It also provides
+ * [LocalPaneSpec] (full, compact or tiny) from the pane's aspect ratio.
  */
 @Composable
 fun DesignScale(designWidthDp: Float = 440f, content: @Composable () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val d = Density(density = constraints.maxWidth / designWidthDp, fontScale = 1f)
-        CompositionLocalProvider(LocalDensity provides d) {
+        // The pane shape (full, compact, tiny) from the real aspect ratio; remembered so the hysteresis holds while a pane edge is dragged.
+        val tracker = remember { PaneTracker() }
+        val pane = tracker.update(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+        CompositionLocalProvider(LocalDensity provides d, LocalPaneSpec provides pane) {
             Box(Modifier.fillMaxSize()) { content() }
         }
     }

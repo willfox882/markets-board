@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.Hairline
 import com.marketsboard.ui.Label
+import com.marketsboard.ui.PaneSpec
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
 import com.marketsboard.ui.SwitchRow
@@ -38,7 +39,7 @@ import com.marketsboard.ui.UiMode
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
+fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier, ratio: Float = PaneShape.Full.ratio, onRatio: (Float) -> Unit = {}) {
     var behavior by remember { mutableStateOf(env.fake.behavior) }
     var newsBehavior by remember { mutableStateOf(env.newsFetcher.behavior) }
     var lastBreaking by remember { mutableStateOf("") }
@@ -67,6 +68,20 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier) {
         Text(
             "The real presenter, refresh controller and repository run against a fake market. Nothing here touches the network.",
             color = Dash.dim, fontSize = 12.sp, lineHeight = 17.sp,
+        )
+        Hairline()
+        Label("Pane shape")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PaneShape.entries.forEach { sh -> Chip(sh.label, selected = kotlin.math.abs(sh.ratio - ratio) < 0.005f) { onRatio(sh.ratio) } }
+        }
+        val spec = PaneSpec.classify(PaneSpec.DESIGN_WIDTH_DP * ratio)
+        Text(
+            "Pane height ${spec.heightDp.toInt()} dp (${if (spec.tiny) "tiny" else if (spec.compact) "compact" else "full"})",
+            color = Dash.dim, fontSize = 13.sp,
+        )
+        Slider(
+            value = ratio, onValueChange = onRatio, valueRange = 0.4f..1.9f,
+            colors = SliderDefaults.colors(thumbColor = Dash.text, activeTrackColor = Dash.text, inactiveTrackColor = Dash.line),
         )
         Hairline()
         Label("Market behaviour")

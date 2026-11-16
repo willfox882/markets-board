@@ -36,6 +36,7 @@ import com.marketsboard.ui.Dash
 import com.marketsboard.ui.Dot
 import com.marketsboard.ui.Hairline
 import com.marketsboard.ui.Label
+import com.marketsboard.ui.LocalPaneSpec
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
 import com.marketsboard.ui.TextAction
@@ -50,8 +51,12 @@ fun AddSheet(a: AddUi, actions: MarketsActions, modifier: Modifier = Modifier) {
     val replacing = a.replacing != null
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    Column(modifier.padding(horizontal = 20.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    val pane = LocalPaneSpec.current
+    val gap = pane.pick(12, 6).dp
+    // Compact: the header, field and messages sit on top at their natural size, the results list takes (and scrolls in) whatever
+    // is left, so the field is never pushed out of view when the keyboard shrinks the pane.
+    Column(modifier.padding(horizontal = pane.pick(20, 16).dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = pane.pick(14, 4).dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(84.dp)) { TextAction("Cancel", actions::onAddClose, Modifier.offset(x = (-10).dp), color = Dash.dim) }
             Text(
                 if (replacing) "Replace" else "Add symbol", color = Dash.text, fontSize = 18.sp, fontWeight = FontWeight.Medium,
@@ -62,29 +67,29 @@ fun AddSheet(a: AddUi, actions: MarketsActions, modifier: Modifier = Modifier) {
         if (replacing) {
             Text(
                 "Pick the symbol that takes the place of ${a.replacing}${if (a.replacingName.isNotEmpty()) " (${a.replacingName})" else ""}. It keeps its position in the list.",
-                color = Dash.dim, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 10.dp),
+                color = Dash.dim, fontSize = 13.sp, lineHeight = 18.sp, maxLines = pane.pick(4, 2, 1), overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = pane.pick(10, 2).dp),
             )
         }
         OutlinedTextField(
             value = a.query, onValueChange = actions::onQueryChange, singleLine = true, colors = dashFieldColors(),
             placeholder = { Text("Search a name or type a symbol", color = Dash.faint) },
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = pane.pick(18, 17).sp),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { actions.onSubmitTyped() }),
             shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 60.dp).focusRequester(focus),
+            modifier = Modifier.fillMaxWidth().padding(top = gap).heightIn(min = pane.pick(60, 54).dp).focusRequester(focus),
         )
         a.message?.let { m ->
-            Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            Column(Modifier.fillMaxWidth().padding(top = gap)) {
                 Row(verticalAlignment = Alignment.Top) {
                     Dot(if (m.warn) Dash.amber else Dash.text, 6, Modifier.padding(top = 6.dp))
                     Text(
-                        m.text, color = if (m.warn) Dash.amber else Dash.text, fontSize = 14.sp, lineHeight = 20.sp,
-                        modifier = Modifier.padding(start = 8.dp),
+                        m.text, color = if (m.warn) Dash.amber else Dash.text, fontSize = 14.sp, lineHeight = pane.pick(20, 18).sp,
+                        maxLines = pane.pick(8, 3, 2), overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp),
                     )
                 }
                 if (m.addAnywaySymbol != null) {
-                    PillButton("Add ${m.addAnywaySymbol} anyway", actions::onAddAnyway, Modifier.padding(top = 10.dp), kind = PillKind.Secondary, small = true)
+                    PillButton("Add ${m.addAnywaySymbol} anyway", actions::onAddAnyway, Modifier.padding(top = pane.pick(10, 6).dp), kind = PillKind.Secondary, small = true)
                 }
             }
         }
@@ -93,14 +98,14 @@ fun AddSheet(a: AddUi, actions: MarketsActions, modifier: Modifier = Modifier) {
             a.searching -> "Searching"
             else -> ""
         }
-        if (status.isNotEmpty()) Text(status, color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+        if (status.isNotEmpty()) Text(status, color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = gap))
         if (a.searchNote.isNotEmpty() && status.isEmpty()) {
-            Text(a.searchNote, color = Dash.dim, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 12.dp))
+            Text(a.searchNote, color = Dash.dim, fontSize = 13.sp, lineHeight = 18.sp, maxLines = pane.pick(6, 2), overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = gap))
         }
         val showSuggestions = a.query.isBlank()
         val rows = if (showSuggestions) a.suggestions else a.results
-        LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            if (showSuggestions) item { Label("Suggestions", Modifier.padding(top = 10.dp, bottom = 8.dp)) }
+        LazyColumn(Modifier.fillMaxSize().padding(top = pane.pick(8, 4).dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            if (showSuggestions) item { Label("Suggestions", Modifier.padding(top = pane.pick(10, 6).dp, bottom = pane.pick(8, 4).dp)) }
             item { Hairline() }
             items(rows, key = { it.symbol }) { r ->
                 SearchResultRow(r) { actions.onPickResult(r.symbol) }
@@ -113,7 +118,7 @@ fun AddSheet(a: AddUi, actions: MarketsActions, modifier: Modifier = Modifier) {
 @Composable
 fun SearchResultRow(r: SearchRowUi, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Row(
-        modifier.fillMaxWidth().heightIn(min = 68.dp).clickable(onClick = onClick).padding(vertical = 10.dp),
+        modifier.fillMaxWidth().heightIn(min = LocalPaneSpec.current.pick(68, 56).dp).clickable(onClick = onClick).padding(vertical = LocalPaneSpec.current.pick(10, 6).dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(end = 10.dp)) {

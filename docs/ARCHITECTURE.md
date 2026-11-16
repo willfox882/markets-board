@@ -13,7 +13,8 @@
 - `shared/src/main/kotlin/com/marketsboard/ui/Theme.kt`: `Dash` palette, `Tabular`, `DashFonts` hook, `MarketsBoardTheme`.
 - `.../ui/Components.kt`: Label, ScreenTitle, Hairline, Dot, DashCard, Numeral, StatGrid, PillButton, TextAction, SectionHeader, SwitchRow, ValueRow, DashDialog, Skeleton, TextToggle (light text tabs on a hairline), `changeColor` and `liveDotColor` (the only two users of green/red).
 - `.../ui/Format.kt`: pure formatting (formatPrice, formatSigned, formatPercent, changeSign, formatTimeAgo), typographic minus; one BigDecimal rounding step shared by text, sign and colour.
-- `.../ui/DesignScale.kt`: `DesignScale` (440 dp design width), `LocalBackHook` and `LocalOpenUrl` (platform hook that opens an http(s) link; default no-op).
+- `.../ui/PaneSpec.kt`: `PaneSpec(heightDp, compact, tiny)` (pure classification: compact below 620 dp, tiny below 330 dp, 24 dp hysteresis; `pick(full, compact, tiny)`), `LocalPaneSpec`, `PaneTracker` (remembers the previous state). Same name and thresholds as Truck Dash.
+- `.../ui/DesignScale.kt`: `DesignScale` (440 dp design width, provides `LocalPaneSpec` from the real aspect ratio), `LocalBackHook` and `LocalOpenUrl` (platform hook that opens an http(s) link; default no-op).
 - `.../ui/MarketsBoardRoot.kt`: `MbTab` enum and the tabbed shell with hairline bottom bar; takes `MarketsUiState` + `NewsUiState` + `MarketsActions` + `NewsActions` + `UiMode` from the caller; the tab bar steps aside for the Markets detail/add sheet and the News article.
 - `.../ui/charts/Charts.kt`: `LineChart` (optional dashed baseline), `BarChart`, `Sparkline`, `downsample`.
 - `.../ui/markets/MarketsUi.kt`: UI models (`QuoteRowUi` + `RowStatus`, `HeaderUi`, `DetailUi`, `AddUi`, `SearchRowUi`, `MarketsUiState`) and the `MarketsActions` interface (every user action; `None` default).
@@ -87,7 +88,7 @@
 
 ## app/ (Android)
 - `app/build.gradle.kts`: Android module, shared srcDir + font res.
-- `app/src/main/AndroidManifest.xml`: INTERNET, ACCESS_NETWORK_STATE, ACCESS_FINE/COARSE_LOCATION (foreground only), gps `uses-feature` not required, `<queries>` for the TTS service, portrait activity.
+- `app/src/main/AndroidManifest.xml`: INTERNET, ACCESS_NETWORK_STATE, ACCESS_FINE/COARSE_LOCATION (foreground only), gps `uses-feature` not required, `<queries>` for the TTS service, resizable activity (multi-window allowed, orientation unspecified, `adjustResize`).
 - `app/src/main/java/com/marketsboard/MainActivity.kt`: immersive, keep-screen-on, sets fonts, provides `LocalBackHook`, shows the root with the presenters' states, provides `LocalOpenUrl` (ACTION_VIEW in try/catch, http(s) only), sets `active` from onResume/onPause, runs the location permission request, starts and stops `LocationSpeedSource`, handles the media play/pause and headset hook keys.
 - `app/src/main/java/com/marketsboard/AppGraph.kt`: hand-built dependency graph (fetcher, log, providers, cache in `filesDir/cache`, `WatchlistStore` in `filesDir/watchlist.json`, `QuoteRepository`, `MarketsData`, plus `FeedStore` in `filesDir/feeds.json` and `NewsRepository` on the same cache); takes a `File`, so it is JVM-testable.
 - `app/src/main/java/com/marketsboard/AppRuntime.kt`: process-scoped `RefreshController` + presenters, `DrivingGate` (+ 1 s tick), `SettingsPresenter`, `BriefingController` on top of the graph; its `ActiveGate` is flipped by the Activity.
@@ -118,7 +119,8 @@
 - `sandbox/src/main/kotlin/com/marketsboard/sandbox/Main.kt`: window entry point.
 - `.../sandbox/SandboxApp.kt`: 9:16 head-unit frame running the real presenter and UI + control panel.
 - `.../sandbox/SandboxEnv.kt`: also the real `DrivingGate` fed from the panel (speed, GPS lost, no permission), `SettingsPresenter`, `BriefingController` on `FakeSpeaker`; real presenter, controller, repository and temp-dir watchlist on the fake provider, plus the real news repository, poller and presenter on `FakeFeedFetcher`, a simulated "network is back" signal and `openUrl` recording; `SandboxTime` (speed-up, device clock skew), hotspot drop, watchlist reset.
-- `.../sandbox/ControlPanel.kt`: panel in the app's own style (behaviour, latency, clock skew, speed slider, GPS lost, no permission, passenger, speaker modes and log, app active, time speed, hotspot drop, reset).
+- `.../sandbox/PaneShape.kt`: the pane shapes (Full 9:16, Top / bottom half 9:8, Short strip 3:2) with their screenshot sizes.
+- `.../sandbox/ControlPanel.kt`: panel in the app's own style (pane shape and height slider, behaviour, latency, clock skew, speed slider, GPS lost, no permission, passenger, speaker modes and log, app active, time speed, hotspot drop, reset).
 - `.../sandbox/FakeSpeaker.kt`: no-sound `Speaker` for the sandbox (timing from the text, modes Ok, Unavailable, ErrorMidway, FocusLost, a log of the sentences).
 - `.../sandbox/ScreenshotFixtures.kt`: deterministic Markets states (fake provider at a fixed time through `UiMapper`) for screenshots and render tests.
 - `.../sandbox/Fonts.kt`: `loadDashFonts()` from classpath.
@@ -129,6 +131,8 @@
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/MarketsRenderTest.kt`: 440 dp layout checks (names, 6-digit and 4-decimal prices, gutters, every screen), tab bar hiding, Glance, pointer tests (taps never pass through an overlay) and the palette test (only green/red/amber/greyscale).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/NewsRenderTest.kt`: News at 440 dp (long titles, unbreakable words, tag chips, every state), greyscale-plus-amber palette, tab bar and back hook, tap tests (list, glance, article never leaks to the list, Open article hook, Retry).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/FakeFeedFetcherTest.kt` and `SandboxNewsEnvTest.kt`: the fake servers parse with the real parser; news end to end (load, filter, article, offline and recovery, breaking headline, failing and malformed feeds).
+- `sandbox/src/test/kotlin/com/marketsboard/sandbox/PaneRenderTest.kt`: every screen at 440x391 and 440x300 dp (not blank, gutters, palette, Glance keeps the briefing control visible at heights 240 to 782).
+- `app/src/test/kotlin/com/marketsboard/ui/PaneSpecTest.kt`, `MultiWindowTest.kt`: pane classification (thresholds, hysteresis, extremes) and the manifest / lifecycle scan (resizeable, `onStart`/`onStop` own the speed source and gate).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/SandboxEnvTest.kt`: presenter + controller + repository + fake provider end to end (real time).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/JvmHttpFetcherTest.kt`: `JvmHttpFetcher` against a local `com.sun.net.httpserver.HttpServer` (lives here because that API is not on the Android unit-test classpath).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/FakeMarketDataProviderTest.kt`: fake provider behaviours.

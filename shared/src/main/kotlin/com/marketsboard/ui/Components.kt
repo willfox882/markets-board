@@ -45,7 +45,7 @@ fun Label(text: String, modifier: Modifier = Modifier, color: Color = Dash.dim) 
 
 @Composable
 fun ScreenTitle(text: String, modifier: Modifier = Modifier) {
-    Text(text, color = Dash.text, fontSize = 34.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.5).sp, modifier = modifier)
+    Text(text, color = Dash.text, fontSize = LocalPaneSpec.current.pick(34, 26).sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.5).sp, modifier = modifier)
 }
 
 @Composable
@@ -103,6 +103,7 @@ data class StatItem(
 /** Several stats in one matte card, separated by hairlines (no individual boxes). */
 @Composable
 fun StatGrid(items: List<StatItem>, modifier: Modifier = Modifier, columns: Int = 3, valueSize: TextUnit = 28.sp) {
+    val compact = LocalPaneSpec.current.compact
     DashCard(modifier.fillMaxWidth(), padding = 0) {
         items.chunked(columns).forEachIndexed { row, cells ->
             if (row > 0) Hairline()
@@ -110,7 +111,7 @@ fun StatGrid(items: List<StatItem>, modifier: Modifier = Modifier, columns: Int 
                 for (i in 0 until columns) {
                     if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(Dash.line))
                     val it = cells.getOrNull(i)
-                    Column(Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Column(Modifier.weight(1f).padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 9.dp else 14.dp)) {
                         if (it != null) {
                             Label(it.label)
                             Numeral(it.value, it.unit, valueSize, it.color, Modifier.padding(top = 4.dp))
@@ -158,7 +159,7 @@ fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
 
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(top = LocalPaneSpec.current.pick(10, 6).dp), verticalAlignment = Alignment.CenterVertically) {
         Label(title, Modifier.weight(1f))
         action?.invoke()
     }
@@ -223,10 +224,11 @@ fun Skeleton(width: Dp, height: Dp, modifier: Modifier = Modifier) {
 /** Settings-style row: title + optional subtitle on the left, a switch on the right. 68 dp tall for bumpy-road use. */
 @Composable
 fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, subtitle: String = "") {
-    Row(modifier.fillMaxWidth().height(68.dp), verticalAlignment = Alignment.CenterVertically) {
+    val pane = LocalPaneSpec.current
+    Row(modifier.fillMaxWidth().height(pane.pick(68, 58, 54).dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(title, color = Dash.text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-            if (subtitle.isNotEmpty()) Text(subtitle, color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+            Text(title, color = Dash.text, fontSize = pane.pick(17, 16).sp, fontWeight = FontWeight.Medium)
+            if (subtitle.isNotEmpty()) Text(subtitle, color = Dash.dim, fontSize = pane.pick(13, 12).sp, maxLines = pane.pick(3, 2), overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         }
         Switch(checked = checked, onCheckedChange = onChange, colors = dashSwitchColors())
     }
@@ -236,7 +238,7 @@ fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modi
 @Composable
 fun ValueRow(title: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, valueColor: Color = Dash.dim) {
     Row(
-        modifier.fillMaxWidth().height(60.dp).let { if (onClick != null) it.clickable(onClick = onClick) else it },
+        modifier.fillMaxWidth().height(LocalPaneSpec.current.pick(60, 48).dp).let { if (onClick != null) it.clickable(onClick = onClick) else it },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, color = Dash.text, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
@@ -251,7 +253,7 @@ fun ValueRow(title: String, value: String, modifier: Modifier = Modifier, onClic
  */
 @Composable
 fun TextToggle(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().height(44.dp)) {
+    Box(modifier.fillMaxWidth().height(LocalPaneSpec.current.pick(44, 40, 36).dp)) {
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(1.dp).background(Dash.line))
         Row(Modifier.fillMaxHeight().offset(x = (-12).dp)) {
             options.forEachIndexed { i, label ->
