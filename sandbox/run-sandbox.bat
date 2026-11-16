@@ -1,10 +1,25 @@
 @echo off
-rem Markets Board Sandbox launcher (Windows). Needs Java 17 or newer.
-where java >nul 2>nul
-if errorlevel 1 (
-  echo Java 17+ was not found. Install "Temurin 17 JRE" from https://adoptium.net and run this again.
+rem Markets Board sandbox launcher (Windows). Needs Java 17 or newer.
+cd /d "%~dp0"
+if not exist "markets-board-sandbox.jar" (
+  echo.
+  echo  Cannot find markets-board-sandbox.jar next to this file.
+  echo  The GitHub "Download ZIP" contains only source code, not the built program.
+  echo  Please use the ready-made zip (markets-board-sandbox-windows.zip) instead:
+  echo    1. Unzip it anywhere.
+  echo    2. Open the unzipped folder and double-click run-sandbox.bat.
+  echo.
   pause
   exit /b 1
 )
-java -jar "%~dp0markets-board-sandbox.jar"
+where java >nul 2>nul
+if errorlevel 1 (
+  echo.
+  echo  Java was not found. Install "Temurin 17 (or newer) JRE" from https://adoptium.net
+  echo  and tick "Add to PATH" and "Set JAVA_HOME" in the installer, then run this again.
+  echo.
+  pause
+  exit /b 1
+)
+java -jar "markets-board-sandbox.jar"
 if errorlevel 1 pause

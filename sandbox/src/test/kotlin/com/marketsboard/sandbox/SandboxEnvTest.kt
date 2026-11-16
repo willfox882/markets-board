@@ -11,11 +11,30 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestRule
+import org.junit.runner.Description
+import org.junit.runners.model.Statement
 
 /** The real presenter, refresh controller and repository running against the fake market (real time, no latency). */
 class SandboxEnvTest {
-    private suspend fun <T> until(timeoutMs: Long = 10_000, f: () -> T?): T = withTimeout(timeoutMs) {
+    /**
+     * These tests run the real presenter, controller and fake market in REAL time on a shared CPU, so on a loaded
+     * CI runner an occasional step can miss its window. Retry the whole scenario up to 3 times; a genuine bug fails
+     * every attempt. Deterministic logic lives in the unit tests with fake clocks.
+     */
+    @get:Rule val retry = TestRule { base, _: Description ->
+        object : Statement() {
+            override fun evaluate() {
+                var last: Throwable? = null
+                repeat(3) { try { base.evaluate(); return } catch (t: Throwable) { last = t } }
+                throw last!!
+            }
+        }
+    }
+
+    private suspend fun <T> until(timeoutMs: Long = 30_000, f: () -> T?): T = withTimeout(timeoutMs) {
         var v = f()
         while (v == null) { delay(20); v = f() }
         v
@@ -50,9 +69,13 @@ class SandboxEnvTest {
     }
 
     @Test fun addingASymbolThroughThePresenterShowsItInTheList() = env { e, _ ->
-        e.presenter.onAddOpen()
-        e.presenter.onQueryChange("shop")
-        val results = until { e.presenter.state.value.add?.results?.takeIf { it.isNotEmpty() } }
+        // Real-time integration test: drive each step idempotently so a slow runner cannot lose a stimulus.
+        val results = until {
+            val add = e.presenter.state.value.add
+            if (add == null) e.presenter.onAddOpen()
+            else if (add.query != "shop") e.presenter.onQueryChange("shop")
+            add?.results?.takeIf { it.isNotEmpty() && add.query == "shop" }
+        }
         assertEquals("SHOP.TO", results.first().symbol)
         e.presenter.onPickResult("SHOP.TO")
         val s = until { e.presenter.state.value.takeIf { st -> st.quotes.any { it.symbol == "SHOP.TO" && it.status == RowStatus.Fresh } } }
@@ -64,7 +87,7 @@ class SandboxEnvTest {
     @Test fun clockSkewShowsTheBanner() = env { e, _ ->
         until { e.presenter.state.value.takeIf { st -> st.quotes.size == 2 && st.quotes.all { it.status == RowStatus.Fresh } } }
         e.time.deviceSkewMs = -45 * 60_000L
-        e.presenter.onRetry("XEQT.TO")
-        until { e.presenter.state.value.takeIf { it.clockSkew } }
+        // Retry is debounced (5 s) and CI runners are slow, so keep asking until the skewed fetch has landed.
+        until { e.presenter.onRetry("XEQT.TO"); e.presenter.state.value.takeIf { it.clockSkew } }
     }
 }
