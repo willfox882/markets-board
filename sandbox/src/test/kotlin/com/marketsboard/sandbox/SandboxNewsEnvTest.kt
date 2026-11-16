@@ -42,8 +42,8 @@ class SandboxNewsEnvTest {
         assertTrue(mine.rows.isNotEmpty() && mine.rows.all { it.tags.isNotEmpty() })
         assertTrue(mine.rows.size < s.rows.size)
         // the second pass is answered with 304s where nothing changed
-        e.newsPoller.refreshNow()
-        until { e.newsFetcher.notModified.takeIf { it > 0 } }
+        // manual presses are debounced (5 s) and the fake content can roll over mid-test, so keep asking until a 304 lands
+        until(40_000) { e.newsPoller.refreshNow(); e.newsFetcher.notModified.takeIf { it > 0 } }
     }
 
     @Test fun anArticleOpensAndGlanceHidesIt() = env { e ->
