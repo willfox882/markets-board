@@ -39,14 +39,18 @@ class RepoHygieneTest {
         assertTrue("raw hex colour literals outside Theme.kt: $bad", bad.isEmpty())
     }
 
-    /** Green and red mean price change only, so they appear in Theme.kt and the single changeColor function. */
+    /**
+     * Green and red mean price change only (plus the one "Live" dot), so they appear in Theme.kt and Components.kt:
+     * the changeColor function (two lines) and liveDotColor (one line).
+     */
     @Test fun greenAndRedAreOnlyUsedForPriceChange() {
         val pattern = Regex("Dash\\.(green|red)\\b")
         val users = textFiles().filter { it.extension == "kt" && "/src/main/" in rel(it) }
             .filter { it.name != "Theme.kt" && pattern.containsMatchIn(it.readText()) }
         assertTrue("unexpected green/red users: ${users.map(::rel)}", users.map { it.name } == listOf("Components.kt"))
         val lines = users.single().readLines().filter { pattern.containsMatchIn(it) }
-        assertTrue("only changeColor may use green/red: $lines", lines.size == 2)
+        assertTrue("only changeColor and liveDotColor may use green/red: $lines", lines.size == 3)
+        assertTrue("liveDotColor must be the only non-change use of green", lines.count { "liveDotColor" in it } == 1)
     }
 
     @Test fun noModelNamesOutsideThePlaybook() {

@@ -28,6 +28,8 @@ class FakeMarketDataProvider(
     @Volatile var behavior: FakeBehavior = FakeBehavior.Normal,
     @Volatile var slowDelayMs: Long = 2_500,
     @Volatile var retryAfterMs: Long? = 60_000,
+    /** Extra delay on every quote and search call (the sandbox latency slider). */
+    @Volatile var latencyMs: Long = 0,
 ) : MarketDataProvider {
     override val id: String = "fake"
 
@@ -37,6 +39,7 @@ class FakeMarketDataProvider(
     override suspend fun quote(symbol: String, range: ChartRange): FetchResult<Quote> {
         quoteCalls++
         val sym = symbol.trim().uppercase()
+        if (latencyMs > 0) delay(latencyMs)
         when (behavior) {
             FakeBehavior.Offline -> return FetchResult.Err(ErrorKind.Network, "fake: offline")
             FakeBehavior.RateLimited -> return FetchResult.Err(ErrorKind.RateLimited(retryAfterMs), "fake: HTTP 429")
@@ -51,6 +54,7 @@ class FakeMarketDataProvider(
     }
 
     override suspend fun search(query: String): FetchResult<List<Instrument>> {
+        if (latencyMs > 0) delay(latencyMs)
         when (behavior) {
             FakeBehavior.Offline -> return FetchResult.Err(ErrorKind.Network, "fake: offline")
             FakeBehavior.RateLimited -> return FetchResult.Err(ErrorKind.RateLimited(retryAfterMs), "fake: HTTP 429")
@@ -59,7 +63,9 @@ class FakeMarketDataProvider(
         }
         val q = query.trim().uppercase()
         if (q.isEmpty()) return FetchResult.Ok(emptyList())
-        return FetchResult.Ok(CATALOGUE.filter { it.symbol.contains(q) || it.name.uppercase().contains(q) }.take(8))
+        val hits = CATALOGUE.filter { it.symbol.contains(q) || it.name.uppercase().contains(q) }
+        // Symbol prefix matches first, then name matches, like a real search box.
+        return FetchResult.Ok(hits.sortedBy { if (it.symbol.startsWith(q)) 0 else if (it.name.uppercase().startsWith(q)) 1 else 2 }.take(8))
     }
 
     private fun build(sym: String, range: ChartRange): Quote {
@@ -69,11 +75,11 @@ class FakeMarketDataProvider(
         val base = basePrice(sym)
         val series = (0 until points).map { i ->
             val b = bucket - (points - 1 - i)
-            SeriesPoint(b * interval, round(base * level(sym, range, b)))
+            SeriesPoint(b * interval, round(base * level(sym, range, b), sym))
         }
         val price = series.last().close
         // D1 reference is the previous session close, longer ranges the close before the range started.
-        val prev = round(base * level(sym, range, bucket - points))
+        val prev = round(base * level(sym, range, bucket - points), sym)
         return Quote(
             symbol = sym,
             name = nameFor(sym),
@@ -83,26 +89,30 @@ class FakeMarketDataProvider(
             prevClose = prev,
             dayHigh = series.maxOf { it.close },
             dayLow = series.minOf { it.close },
-            marketState = "REGULAR",
+            marketState = if (sym.endsWith(".L")) "CLOSED" else "REGULAR",
             asOfEpochMs = series.last().tMs,
             series = series,
             range = range,
             instrumentType = typeFor(sym),
             source = id,
             priceHint = if (sym.endsWith("=X")) 4 else 2,
+            exchangeTimezoneName = timezoneFor(exchangeFor(sym)),
         )
     }
 
     /** Smooth deterministic wobble plus per-bucket noise: stable per (symbol, range, bucket), no hidden state. */
     private fun level(sym: String, range: ChartRange, bucket: Long): Double {
         val seed = stableHash(sym).toLong()
-        val slow = 0.03 * sin(bucket / 23.0 + (seed % 628) / 100.0)
+        val slow = 0.03 * sin(bucket / (14.0 + seed % 17) + (seed % 628) / 100.0)
         val fast = 0.012 * sin(bucket / 5.0 + (seed % 314) / 50.0)
         val noise = (SplittableRandom(seed * 1_000_003L + bucket * 31L + range.ordinal).nextDouble() - 0.5) * 0.006
         return exp(slow + fast + noise)
     }
 
-    private fun round(v: Double) = Math.round(v * 100.0) / 100.0
+    private fun round(v: Double, sym: String): Double {
+        val f = if (sym.endsWith("=X")) 10_000.0 else 100.0
+        return Math.round(v * f) / f
+    }
 
     private fun intervalMs(r: ChartRange) = when (r) {
         ChartRange.D1 -> 5 * 60_000L
@@ -135,6 +145,20 @@ class FakeMarketDataProvider(
             "ENB.TO" to Known("Enbridge Inc.", "TSX", "CAD", "EQUITY", 55.0),
             "AAPL" to Known("Apple Inc.", "NASDAQ", "USD", "EQUITY", 215.0),
             "NVDA" to Known("NVIDIA Corporation", "NASDAQ", "USD", "EQUITY", 125.0),
+            "TSLA" to Known("Tesla, Inc.", "NASDAQ", "USD", "EQUITY", 245.0),
+            "GOOGL" to Known("Alphabet Inc.", "NASDAQ", "USD", "EQUITY", 178.0),
+            "AMZN" to Known("Amazon.com, Inc.", "NASDAQ", "USD", "EQUITY", 186.0),
+            "BNS.TO" to Known("Bank of Nova Scotia", "TSX", "CAD", "EQUITY", 74.0),
+            "BMO.TO" to Known("Bank of Montreal", "TSX", "CAD", "EQUITY", 128.0),
+            "CNQ.TO" to Known("Canadian Natural Resources", "TSX", "CAD", "EQUITY", 46.0),
+            "CNR.TO" to Known("Canadian National Railway", "TSX", "CAD", "EQUITY", 165.0),
+            "BCE.TO" to Known("BCE Inc.", "TSX", "CAD", "EQUITY", 44.0),
+            "VEQT.TO" to Known("Vanguard All-Equity ETF Portfolio", "TSX", "CAD", "ETF", 41.0),
+            "ZSP.TO" to Known("BMO S&P 500 Index ETF", "TSX", "CAD", "ETF", 72.0),
+            "^DJI" to Known("Dow Jones Industrial Average", "DJI", "USD", "INDEX", 40200.0),
+            "EURCAD=X" to Known("EUR/CAD", "CCY", "CAD", "CURRENCY", 1.47),
+            "SI=F" to Known("Silver", "COMEX", "USD", "FUTURE", 29.5),
+            "VOD.L" to Known("Vodafone Group", "LSE", "GBX", "EQUITY", 68.4),
         )
 
         val CATALOGUE: List<Instrument> = KNOWN.map { (s, k) -> Instrument(s, k.name, k.currency, k.exchange, k.type) }
@@ -159,6 +183,13 @@ class FakeMarketDataProvider(
             sym.endsWith("=F") -> "NYMEX"
             sym.contains('-') -> "CCC"
             else -> "NASDAQ"
+        }
+
+        fun timezoneFor(exchange: String): String = when (exchange) {
+            "TSX", "TSXV" -> "America/Toronto"
+            "LSE" -> "Europe/London"
+            "CCY", "CRYPTO", "CCC" -> "UTC"
+            else -> "America/New_York"
         }
 
         fun typeFor(sym: String): String = KNOWN[sym]?.type ?: when {

@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -207,6 +208,15 @@ fun changeColor(pct: Double, decimals: Int = 2): Color = when (changeSign(pct, d
     1 -> Dash.green
     -1 -> Dash.red
     else -> Dash.dim
+}
+
+/** The "Live" dot: green when data is fresh and a market is open (the second and last use of green besides price change). */
+fun liveDotColor(): Color = Dash.green
+
+/** Placeholder block shown where a number will appear (loading rows, loading charts). Static, no spinner. */
+@Composable
+fun Skeleton(width: Dp, height: Dp, modifier: Modifier = Modifier) {
+    Box(modifier.width(width).height(height).clip(RoundedCornerShape(6.dp)).background(Dash.surfaceHigh))
 }
 
 /** Settings-style row: title + optional subtitle on the left, a switch on the right. 68 dp tall for bumpy-road use. */

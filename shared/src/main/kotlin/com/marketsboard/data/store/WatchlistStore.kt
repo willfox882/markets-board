@@ -74,18 +74,18 @@ enum class LoadStatus { Fresh, Loaded, RecoveredFromCorrupt, RecoveredFromBackup
 class WatchlistStore(
     private val file: File,
     private val clock: Clock = Clock.System,
-) {
+) : Watchlist {
     private val lock = Any()
     private val _items = MutableStateFlow(DEFAULTS)
-    val items: StateFlow<List<WatchItem>> = _items.asStateFlow()
+    override val items: StateFlow<List<WatchItem>> = _items.asStateFlow()
 
     var loadStatus: LoadStatus = LoadStatus.Fresh
         private set
-    val readOnly: Boolean get() = loadStatus == LoadStatus.NewerVersionReadOnly || loadStatus == LoadStatus.Unreadable
+    override val readOnly: Boolean get() = loadStatus == LoadStatus.NewerVersionReadOnly || loadStatus == LoadStatus.Unreadable
 
     private val _persistError = MutableStateFlow<String?>(null)
     /** Non-null while the last write failed (disk full, read-only storage). The in-memory list is still current. */
-    val persistError: StateFlow<String?> = _persistError.asStateFlow()
+    override val persistError: StateFlow<String?> = _persistError.asStateFlow()
 
     private var dirty = false
 
@@ -104,14 +104,14 @@ class WatchlistStore(
         commit(cur.toMutableList().apply { add(idx, clean) })
     }
 
-    fun remove(symbol: String): EditResult = edit {
+    override fun remove(symbol: String): EditResult = edit {
         val sym = Symbols.normalize(symbol) ?: return@edit EditResult.NotFound
         val cur = _items.value
         if (cur.none { it.symbol == sym }) return@edit EditResult.NotFound
         commit(cur.filter { it.symbol != sym })
     }
 
-    fun move(from: Int, to: Int): EditResult = edit {
+    override fun move(from: Int, to: Int): EditResult = edit {
         val cur = _items.value
         if (from !in cur.indices || to !in cur.indices) return@edit EditResult.Invalid("Index out of range")
         if (from == to) return@edit EditResult.Done(persisted = !dirty)
@@ -119,7 +119,7 @@ class WatchlistStore(
     }
 
     /** Sets or clears (null or blank) the display name override. */
-    fun rename(symbol: String, displayName: String?): EditResult = edit {
+    override fun rename(symbol: String, displayName: String?): EditResult = edit {
         val sym = Symbols.normalize(symbol) ?: return@edit EditResult.NotFound
         val cur = _items.value
         val i = cur.indexOfFirst { it.symbol == sym }
@@ -128,7 +128,7 @@ class WatchlistStore(
     }
 
     /** Swaps the instrument [old] for [new] keeping its position (and the display name unless [new] carries one). */
-    fun replace(old: String, new: WatchItem): EditResult = edit {
+    override fun replace(old: String, new: WatchItem): EditResult = edit {
         val oldSym = Symbols.normalize(old) ?: return@edit EditResult.NotFound
         val clean = sanitize(new) ?: return@edit EditResult.Invalid("Invalid symbol")
         val cur = _items.value
@@ -138,13 +138,13 @@ class WatchlistStore(
         commit(cur.toMutableList().apply { this[i] = clean })
     }
 
-    fun resetToDefaults(): EditResult = edit { commit(DEFAULTS) }
+    override fun resetToDefaults(): EditResult = edit { commit(DEFAULTS) }
 
     /**
      * Fetches a quote through [provider] to fill name, currency and exchange, then adds the item.
      * Offline or throttled gives [AddOutcome.NetworkError] with `canAddAnyway`; see [addUnverified].
      */
-    suspend fun validateAndAdd(rawSymbol: String, provider: MarketDataProvider, displayName: String? = null): AddOutcome {
+    override suspend fun validateAndAdd(rawSymbol: String, provider: MarketDataProvider, displayName: String?): AddOutcome {
         val sym = Symbols.normalize(rawSymbol) ?: return AddOutcome.Invalid("Use letters, digits and . ^ = - only (max ${Symbols.MAX_LENGTH})")
         if (readOnly) return AddOutcome.ReadOnly
         _items.value.firstOrNull { it.symbol == sym }?.let { return AddOutcome.Duplicate(it) }
@@ -163,7 +163,7 @@ class WatchlistStore(
     }
 
     /** The "add anyway" path: no verification, unknown currency and exchange (filled on the first good quote). */
-    fun addUnverified(rawSymbol: String, displayName: String? = null): AddOutcome {
+    override fun addUnverified(rawSymbol: String, displayName: String?): AddOutcome {
         val sym = Symbols.normalize(rawSymbol) ?: return AddOutcome.Invalid("Invalid symbol")
         val item = WatchItem(sym, sym, "", "", cleanDisplayName(displayName))
         return toOutcome(add(item), item)
@@ -191,7 +191,7 @@ class WatchlistStore(
     }
 
     /** Retries a failed write now. Call it from the refresh loop or on resume. True when nothing is pending. */
-    fun flushIfDirty(): Boolean = synchronized(lock) { if (!dirty || readOnly) true else persist(_items.value) }
+    override fun flushIfDirty(): Boolean = synchronized(lock) { if (!dirty || readOnly) true else persist(_items.value) }
 
     private fun backupFile(): File = File(file.absoluteFile.parentFile, file.nameWithoutExtension + ".bak")
 

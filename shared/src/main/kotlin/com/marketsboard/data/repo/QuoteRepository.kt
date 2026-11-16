@@ -62,13 +62,13 @@ class QuoteRepository(
     private val config: RepoConfig = RepoConfig(),
     private val hints: (String) -> WatchItem? = { null },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) {
+) : QuotesSource {
     private val _states = MutableStateFlow<Map<String, QuoteState>>(emptyMap())
-    val states: StateFlow<Map<String, QuoteState>> = _states.asStateFlow()
+    override val states: StateFlow<Map<String, QuoteState>> = _states.asStateFlow()
 
     private val _refreshing = MutableStateFlow(false)
     /** True while any network refresh is running. */
-    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+    override val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
     private val gate = Semaphore(config.maxConcurrent.coerceAtLeast(1))
     private val inFlight = HashMap<String, CompletableDeferred<Unit>>()
@@ -85,18 +85,18 @@ class QuoteRepository(
 
     private val primaryId: String? get() = providers.firstOrNull()?.id
 
-    fun stateOf(symbol: String, range: ChartRange = ChartRange.D1): QuoteState? =
+    override fun stateOf(symbol: String, range: ChartRange): QuoteState? =
         _states.value[keyFor(Symbols.normalize(symbol) ?: symbol, range)]
 
     /** Milliseconds until some provider becomes usable again, or 0 when at least one is usable now. */
-    fun cooldownRemainingMs(): Long = synchronized(health) {
+    override fun cooldownRemainingMs(): Long = synchronized(health) {
         val now = clock.monoMs()
         val remaining = providers.mapNotNull { cooldownUntil[it.id] }.map { it - now }
         if (remaining.size < providers.size || remaining.isEmpty()) 0L else remaining.min().coerceAtLeast(0L)
     }
 
     /** Loads cached quotes for symbols that have no state yet. Cheap; call before the first [refresh]. */
-    suspend fun hydrate(symbols: List<String>, range: ChartRange = ChartRange.D1) {
+    override suspend fun hydrate(symbols: List<String>, range: ChartRange) {
         for (raw in symbols) {
             val sym = Symbols.normalize(raw) ?: continue
             val key = keyFor(sym, range)
@@ -119,7 +119,7 @@ class QuoteRepository(
      * Refreshes [symbols] for [range]. Suspends until done; cancelling the caller cancels the fetches and restores
      * any state left in Loading. A symbol already being refreshed is awaited, not fetched twice.
      */
-    suspend fun refresh(symbols: List<String>, range: ChartRange = ChartRange.D1, force: Boolean = false) {
+    override suspend fun refresh(symbols: List<String>, range: ChartRange, force: Boolean) {
         val list = symbols.mapNotNull { Symbols.normalize(it) }.distinct()
         if (list.isEmpty()) return
         synchronized(forgotten) { list.forEach { forgotten.remove(keyFor(it, range)) } }
@@ -131,7 +131,7 @@ class QuoteRepository(
     }
 
     /** Recomputes Fresh/Stale and clock skew for every held quote. Does not touch the network. */
-    fun recomputeAges() {
+    override fun recomputeAges() {
         val wallNow = clock.nowMs()
         val mono = clock.monoMs()
         _states.update { m ->
@@ -150,7 +150,7 @@ class QuoteRepository(
      * leaves the watchlist, otherwise cache files and series for deleted items would linger until evicted.
      * A fetch already running for it will not bring the state back.
      */
-    suspend fun forget(symbol: String) {
+    override suspend fun forget(symbol: String) {
         val sym = Symbols.normalize(symbol) ?: return
         val keys = ChartRange.entries.map { keyFor(sym, it) }
         synchronized(forgotten) { forgotten.addAll(keys) }

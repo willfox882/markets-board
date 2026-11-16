@@ -35,16 +35,21 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.marketsboard.demo.DemoData
+import com.marketsboard.ui.news.NewsComingSoon
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import com.marketsboard.ui.Dash
 import com.marketsboard.ui.LocalBackHook
 import com.marketsboard.ui.MarketsBoardRoot
 import com.marketsboard.ui.MarketsBoardTheme
 
-/** Window content: left the 9:16 head-unit frame running the real UI, right the (for now minimal) control panel. */
+/** Window content: left the 9:16 head-unit frame running the real UI, right the control panel for the fake market. */
 @Composable
 fun SandboxApp() {
     var backCallback by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val scope = rememberCoroutineScope()
+    val env = remember { SandboxEnv(scope) }
+    val state by env.presenter.state.collectAsState()
     MarketsBoardTheme {
         CompositionLocalProvider(
             LocalBackHook provides { enabled, onBack -> SideEffect { backCallback = if (enabled) onBack else null } },
@@ -63,25 +68,11 @@ fun SandboxApp() {
                             .border(8.dp, Dash.surfaceHigh, RoundedCornerShape(22.dp))
                             .padding(8.dp).clip(RoundedCornerShape(14.dp)),
                     ) {
-                        MarketsBoardRoot(DemoData.markets, DemoData.news)
+                        MarketsBoardRoot(state, NewsComingSoon, actions = env.presenter)
                     }
                 }
-                ControlPanel()
+                ControlPanel(env)
             }
         }
-    }
-}
-
-@Composable
-private fun ControlPanel() {
-    Column(
-        Modifier.width(340.dp).fillMaxHeight().background(Dash.surface).verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text("Markets Board Sandbox", color = Dash.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "The real shared UI, running on a desktop. Simulated market and news feeds arrive with the data layer (M1 to M3).",
-            color = Dash.dim, fontSize = 12.sp,
-        )
     }
 }

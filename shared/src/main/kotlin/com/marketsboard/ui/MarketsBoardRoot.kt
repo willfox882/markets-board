@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.marketsboard.ui.markets.MarketsActions
 import com.marketsboard.ui.markets.MarketsScreen
 import com.marketsboard.ui.markets.MarketsUiState
 import com.marketsboard.ui.news.NewsScreen
@@ -34,14 +35,14 @@ fun MarketsBoardRoot(
     markets: MarketsUiState,
     news: NewsUiState,
     initialTab: MbTab = MbTab.Markets,
-    onEditWatchlist: () -> Unit = {},
+    actions: MarketsActions = MarketsActions.None,
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     DesignScale {
         Column(Modifier.fillMaxSize().background(Dash.bg)) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
-                    MbTab.Markets -> MarketsScreen(markets, onEdit = onEditWatchlist)
+                    MbTab.Markets -> MarketsScreen(markets, actions = actions)
                     MbTab.News -> NewsScreen(news)
                     MbTab.Settings -> SettingsScreen()
                 }

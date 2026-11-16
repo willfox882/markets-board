@@ -1,6 +1,7 @@
 package com.marketsboard
 
 import com.marketsboard.data.Clock
+import com.marketsboard.data.MarketsData
 import com.marketsboard.data.model.WatchItem
 import com.marketsboard.data.net.FetchLog
 import com.marketsboard.data.net.HttpFetcher
@@ -17,7 +18,7 @@ import java.io.File
 
 /**
  * Hand-built dependency graph with the real implementations. Takes a plain directory (not a Context) so it is
- * unit-testable on the JVM. The UI is not wired to it until M2.
+ * unit-testable on the JVM. [AppRuntime] puts the presenter and refresh controller on top of it.
  */
 class AppGraph(filesDir: File, clock: Clock = Clock.System, rawFetcher: HttpFetcher = JvmHttpFetcher(clock)) {
     val fetchLog = FetchLog(capacity = 100)
@@ -34,20 +35,15 @@ class AppGraph(filesDir: File, clock: Clock = Clock.System, rawFetcher: HttpFetc
         hints = { sym -> watchlist.items.value.firstOrNull { it.symbol == sym } },
     )
 
+    /** What the Markets presenter edits through: watchlist + quotes + the provider used for search and validation. */
+    val data = MarketsData(watchlist, quotes, yahoo)
+
     /**
-     * The UI's removal hook: removes the item and drops everything held for it (state, cache entries, series).
+     * Removal hook: removes the item and drops everything held for it (state, cache entries, series).
      * Use this instead of `watchlist.remove` so deleted instruments leave no cache behind.
      */
-    suspend fun removeFromWatchlist(symbol: String): EditResult {
-        val r = watchlist.remove(symbol)
-        if (r is EditResult.Done) quotes.forget(symbol)
-        return r
-    }
+    suspend fun removeFromWatchlist(symbol: String): EditResult = data.remove(symbol)
 
     /** Swap hook: replaces the item keeping its position and forgets the old symbol's data. */
-    suspend fun replaceInWatchlist(old: String, new: WatchItem): EditResult {
-        val r = watchlist.replace(old, new)
-        if (r is EditResult.Done && !old.trim().equals(new.symbol.trim(), ignoreCase = true)) quotes.forget(old)
-        return r
-    }
+    suspend fun replaceInWatchlist(old: String, new: WatchItem): EditResult = data.replace(old, new)
 }

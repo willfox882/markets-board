@@ -67,7 +67,7 @@ class RenderTest {
             var unit: TextLayoutResult? = null
             pixels(440, 200) {
                 Box(Modifier.padding(horizontal = 20.dp)) {
-                    QuoteRow(quote(price, price * 0.99, currency)) { v, u -> value = v; unit = u }
+                    QuoteRow(quote(price, price * 0.99, currency), onPriceLayout = { v, u -> value = v; unit = u })
                 }
             }
             val v = requireNotNull(value) { "price layout not reported for $price" }
@@ -83,7 +83,7 @@ class RenderTest {
 
     /** Audit finding 4 and colour-is-meaning: no green/red pixels unless a price actually changed. */
     @Test fun newsSettingsAndFlatMarketsAreGreyscale() {
-        val flatMarkets = MarketsUiState(listOf(flat(41.87), flat(428.10)), "status", "note")
+        val flatMarkets = MarketsUiState(listOf(flat(41.87), flat(428.10)))
         for (tab in listOf(MbTab.News, MbTab.Settings, MbTab.Markets)) {
             val p = pixels(810, 1440) { MarketsBoardRoot(flatMarkets, news, tab) }
             assertEquals("coloured pixels on $tab", 0, coloured(p))
@@ -94,13 +94,13 @@ class RenderTest {
     }
 
     @Test fun gainsAndLossesAreColoured() {
-        val moving = MarketsUiState(listOf(quote(102.0, 100.0), quote(98.0, 100.0)), "status")
+        val moving = MarketsUiState(listOf(quote(102.0, 100.0), quote(98.0, 100.0)))
         val p = pixels(810, 1440) { MarketsBoardRoot(moving, news, MbTab.Markets) }
         assertTrue("expected green/red pixels for moving prices", coloured(p) > 200)
     }
 
     @Test fun everyTabRendersContent() {
-        val markets = MarketsUiState(listOf(flat(41.87)), "status", "note")
+        val markets = MarketsUiState(listOf(flat(41.87)))
         for (tab in MbTab.entries) {
             val p = pixels(810, 1440) { MarketsBoardRoot(markets, news, tab) }
             assertTrue("$tab looks blank", p.toSet().size > 8)

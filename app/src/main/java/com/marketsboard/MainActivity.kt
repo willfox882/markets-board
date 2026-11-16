@@ -12,7 +12,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.marketsboard.demo.DemoData
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import com.marketsboard.ui.markets.MarketsUiState
+import com.marketsboard.ui.news.NewsComingSoon
 import com.marketsboard.ui.DashFonts
 import com.marketsboard.ui.LocalBackHook
 import com.marketsboard.ui.MarketsBoardRoot
@@ -28,13 +31,31 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         hideSystemBars()
+        val runtime = (application as MarketsBoardApplication).runtime
         setContent {
             MarketsBoardTheme {
                 CompositionLocalProvider(LocalBackHook provides { enabled, onBack -> BackHandler(enabled, onBack) }) {
-                    MarketsBoardRoot(DemoData.markets, DemoData.news)
+                    if (runtime != null) {
+                        val state by runtime.presenter.state.collectAsState()
+                        MarketsBoardRoot(state, NewsComingSoon, actions = runtime.presenter)
+                    } else {
+                        // The data layer could not start (storage unavailable): keep the shell alive, show nothing invented.
+                        MarketsBoardRoot(MarketsUiState(emptyList()), NewsComingSoon)
+                    }
                 }
             }
         }
+    }
+
+    /** Refreshing runs only while the Activity is resumed (see RefreshController). */
+    override fun onResume() {
+        super.onResume()
+        (application as MarketsBoardApplication).runtime?.active?.value = true
+    }
+
+    override fun onPause() {
+        (application as MarketsBoardApplication).runtime?.active?.value = false
+        super.onPause()
     }
 
     /** Swiping in system bars or a dialog can leave them visible; re-hide whenever the window regains focus. */

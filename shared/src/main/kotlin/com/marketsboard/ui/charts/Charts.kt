@@ -39,12 +39,19 @@ fun LineChart(
     minOverride: Float? = null,
     /** Minimum value range shown, so tiny noise isn't blown up into a mountain. */
     minSpan: Float = 0f,
+    /** Dashed horizontal reference (e.g. the previous close on a 1D chart); included in the vertical range. */
+    baseline: Float? = null,
 ) {
     Canvas(modifier.fillMaxSize()) {
         val v = downsample(values)
         if (v.size < 2) return@Canvas
-        val lo = minOverride ?: v.min()
+        val base = baseline?.takeIf { it.isFinite() }
+        var lo = minOverride ?: v.min()
         var hi = v.max()
+        if (base != null) {
+            lo = minOf(lo, base)
+            hi = maxOf(hi, base)
+        }
         if (hi - lo < minSpan) hi = lo + minSpan
         if (hi - lo < 1e-3f) hi = lo + 1f
         val w = size.width
@@ -54,6 +61,12 @@ fun LineChart(
         val line = Path().apply {
             moveTo(x(0), y(v[0]))
             for (i in 1 until v.size) lineTo(x(i), y(v[i]))
+        }
+        if (base != null) {
+            drawLine(
+                Dash.faint, Offset(0f, y(base)), Offset(w, y(base)), strokeWidth = 1.5f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)),
+            )
         }
         if (fill) {
             val area = Path().apply {
