@@ -27,6 +27,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kxml2) // XmlPullParser implementation for the shared feed parser (Android has its own)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

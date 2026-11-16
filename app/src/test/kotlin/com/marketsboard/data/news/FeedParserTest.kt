@@ -43,7 +43,7 @@ class FeedParserTest {
         val b = ok(fixture("rss_cbc_sample.xml")).items[1]
         assertEquals("TSX edges higher as energy & bank shares lead gains", b.title)
         assertEquals("The S&P/TSX composite index rose 62 points. Trading continued.", b.summary)
-        assertEquals(ms("2026-11-16T18:10:00Z"), b.publishedMs)
+        assertEquals(ms("2026-11-16T17:10:00Z"), b.publishedMs)
     }
 
     @Test fun cdataTitleNamedZoneAndMissingDescription() {
@@ -302,22 +302,71 @@ class FeedParserTest {
         assertTrue(f.items.all { it.publishedMs == null })
     }
 
-    @Test fun datesMoreThanADayAheadAreReplacedByTheFetchTime() {
+    @Test fun datesMoreThanFiveMinutesAheadAreReplacedByTheFetchTime() {
         val f = ok(
             FeedParser.parseText(
                 rssXml(
                     Quad("Far", "https://e.com/a", rfc(NOW_MS + 3 * 86_400_000L)),
-                    Quad("Near", "https://e.com/b", rfc(NOW_MS + 3_600_000L)),
+                    Quad("An hour", "https://e.com/c", rfc(NOW_MS + 3_600_000L)),
+                    Quad("Near", "https://e.com/b", rfc(NOW_MS + 4 * 60_000L)),
                 ),
                 NOW_MS,
             ),
         )
-        val far = f.items[0]
-        assertEquals(NOW_MS, far.publishedMs)
-        assertTrue(far.dateReplaced)
-        val near = f.items[1]
-        assertEquals(NOW_MS + 3_600_000L, near.publishedMs)
-        assertFalse(near.dateReplaced)
+        assertEquals(NOW_MS, f.items[0].publishedMs)
+        assertTrue(f.items[0].dateReplaced)
+        assertEquals(NOW_MS, f.items[1].publishedMs)
+        assertTrue(f.items[1].dateReplaced)
+        assertEquals(NOW_MS + 4 * 60_000L, f.items[2].publishedMs)
+        assertFalse(f.items[2].dateReplaced)
+    }
+
+    // ---- the platform pull parser (kxml2 here, Android's KXmlParser on the phone) --------------------------------------
+
+    @Test fun theRealKxmlParserIsOnTheTestClasspath() {
+        // If the android.jar stubs shadowed kxml2, newInstance() would throw or return null and nothing would parse.
+        val p = org.xmlpull.v1.XmlPullParserFactory.newInstance().newPullParser()
+        assertTrue(p.javaClass.name, p.javaClass.name.contains("KXmlParser"))
+        p.setInput(java.io.StringReader("<a><b>t</b></a>"))
+        var tags = 0
+        while (p.next() != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) if (p.eventType == org.xmlpull.v1.XmlPullParser.START_TAG) tags++
+        assertEquals(2, tags)
+        assertEquals(3, ok(fixture("rss_cbc_sample.xml")).items.size)
+    }
+
+    @Test fun undeclaredPrefixesDoNotBreakTheFeed() {
+        val x = "<rss version=\"2.0\"><channel><title>t</title><item><title>a</title><link>https://e.com/a</link><dc:date>2026-11-16T10:00:00Z</dc:date><media:thumb>x</media:thumb></item></channel></rss>"
+        val f = ok(FeedParser.parseText(x, NOW_MS))
+        assertFalse(f.partial)
+        assertEquals(ms("2026-11-16T10:00:00Z"), f.items.single().publishedMs)
+    }
+
+    @Test fun aDoctypeBehindALargeCommentIsStillRefused() {
+        val x = "<?xml version=\"1.0\"?>\n<!--" + "x".repeat(200_000) + "-->\n<!DOCTYPE rss [<!ENTITY a \"b\">]>\n<rss version=\"2.0\"><channel><title>t</title></channel></rss>"
+        assertTrue(FeedParser.hasDoctype(x))
+        assertEquals(ErrorKind.Parse, err(FeedParser.parseText(x, NOW_MS)).kind)
+    }
+
+    @Test fun billionLaughsBehindAHugeCommentOrPiIsRefusedToo() {
+        val laughs = Fixtures.text("news/billion_laughs.xml")
+        val shifted = laughs.replaceFirst("<!DOCTYPE", "<!--" + "y".repeat(300_000) + "--><?pi " + "z".repeat(100_000) + "?><!DOCTYPE")
+        val t0 = System.nanoTime()
+        val e = err(FeedParser.parseText(shifted, NOW_MS))
+        assertTrue(e.message.contains("DOCTYPE"))
+        assertTrue((System.nanoTime() - t0) / 1_000_000 < 3_000)
+    }
+
+    @Test fun doctypeSearchSkipsCommentsCdataAndInstructionsOnly() {
+        assertFalse(FeedParser.hasDoctype("<rss><!-- <!DOCTYPE x> --><a><![CDATA[<!DOCTYPE y>]]></a><?pi <!DOCTYPE z> ?></rss>"))
+        assertTrue(FeedParser.hasDoctype("<rss><!-- c --><a>x</a><!DOCTYPE late></rss>"))
+        assertFalse(FeedParser.hasDoctype("<rss><a>unterminated <!-- <!DOCTYPE"))
+        assertFalse(FeedParser.hasDoctype(""))
+        assertFalse(FeedParser.hasDoctype("<"))
+    }
+
+    @Test fun entitiesBeyondTheFivePredefinedOnesAreNotExpanded() {
+        val f = ok(FeedParser.parseText("<rss version=\"2.0\"><channel><title>t</title><item><title>x &amp; y &quot;q&quot; &#65; &#x42; &custom;</title><link>https://e.com/a</link></item></channel></rss>", NOW_MS))
+        assertEquals("x & y \"q\" A B &custom;", f.items.single().title)
     }
 
     @Test fun summaryEqualToTheTitleIsDropped() {

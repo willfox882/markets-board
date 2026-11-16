@@ -11,7 +11,7 @@
 ## shared/ (compiled by both :app and :sandbox)
 - `shared/res/font/geist_{light,regular,medium,semibold}.ttf`: Geist weights (Android `R.font`, desktop classpath `font/`).
 - `shared/src/main/kotlin/com/marketsboard/ui/Theme.kt`: `Dash` palette, `Tabular`, `DashFonts` hook, `MarketsBoardTheme`.
-- `.../ui/Components.kt`: Label, ScreenTitle, Hairline, Dot, DashCard, Numeral, StatGrid, PillButton, TextAction, SectionHeader, SwitchRow, ValueRow, DashDialog, Skeleton, SegmentedControl, `changeColor` and `liveDotColor` (the only two users of green/red).
+- `.../ui/Components.kt`: Label, ScreenTitle, Hairline, Dot, DashCard, Numeral, StatGrid, PillButton, TextAction, SectionHeader, SwitchRow, ValueRow, DashDialog, Skeleton, TextToggle (light text tabs on a hairline), `changeColor` and `liveDotColor` (the only two users of green/red).
 - `.../ui/Format.kt`: pure formatting (formatPrice, formatSigned, formatPercent, changeSign, formatTimeAgo), typographic minus; one BigDecimal rounding step shared by text, sign and colour.
 - `.../ui/DesignScale.kt`: `DesignScale` (440 dp design width), `LocalBackHook` and `LocalOpenUrl` (platform hook that opens an http(s) link; default no-op).
 - `.../ui/MarketsBoardRoot.kt`: `MbTab` enum and the tabbed shell with hairline bottom bar; takes `MarketsUiState` + `NewsUiState` + `MarketsActions` + `NewsActions` + `UiMode` from the caller; the tab bar steps aside for the Markets detail/add sheet and the News article.
@@ -25,7 +25,7 @@
 - `.../ui/markets/DetailScreen.kt`: instrument detail (back, price, change, 1D/5D/1M/3M/1Y pills, line chart with previous-close baseline, `StatGrid`, Replace, Remove).
 - `.../ui/markets/AddSheet.kt`: full-screen add / replace sheet (search field, outcome message, "Add anyway", results with "Added" badge, suggestions).
 - `.../core/NewsTexts.kt`: `NewsText`: "now / 5m ago / 3h ago / 2d ago", "Updated 12 min ago", plain-language feed errors.
-- `.../core/Briefing.kt`: `Briefings.build`: the spoken market briefing (greeting, caveats, instruments in native currencies, up to 3 headlines, 110 word budget) as a list of `Utterance`s with pauses; pure text, no audio.
+- `.../core/Briefing.kt`: `Briefings.build`: the spoken market briefing (greeting, caveats, instruments with the currency said only when not CAD, up to 3 unread headlines from the last 24 h, 42 s / 110 word budget from a speaking-time estimate) as `Utterance`s with pauses plus the ids it used; structured ages, no UI-string parsing; pure text, no audio.
 - `.../core/Texts.kt`: `ErrorText` (plain-language reasons, rate-limit countdown), `AddText` (outcome messages), `ExchangeLabels` (Toronto to TSX, NasdaqGS to NASDAQ), `TypeLabels`, `ExchangeTime` (exchange-zone time text, ET/CT/MT/PT labels).
 - `.../core/MarketPhase.kt`: market open (REGULAR/PRE/POST) vs closed from `marketState` or the session window, for the header status.
 - `.../core/PollPolicy.kt`: poll interval per market phase (60 s live, 5 min PRE/POST, 30 min or next session start when closed); also the basis of the repository's market-aware stale limit.
@@ -62,12 +62,12 @@
 - `.../data/news/PlainText.kt`: HTML to plain text (tags, scripts, comments, entities, whitespace, word-boundary clamp, em/en dashes to hyphens) and the entity table.
 - `.../data/news/FeedDates.kt`: RFC 822/1123 variants, ISO 8601 variants and epoch numbers; null when unusable.
 - `.../data/news/XmlText.kt`: bytes to text (BOM, declared encoding, HTTP charset) and the sloppy-XML repair (illegal characters, HTML entities, stray ampersands).
-- `.../data/news/FeedParser.kt`: hardened SAX parser for RSS 2.0, RSS 1.0 (RDF) and Atom; DOCTYPE refused, size/depth/item caps, http(s) links only, partial salvage, typed Parse errors.
-- `.../data/news/Dedupe.kt`: canonical URL, normalised title, token Dice similarity (looser when summaries are identical), merge keeping the earliest report and the union of tags.
+- `.../data/news/FeedParser.kt`: hardened `XmlPullParser` (platform KXmlParser on Android, kxml2 on the JVM) parser for RSS 2.0, RSS 1.0 (RDF) and Atom; a linear whole-input DOCTYPE scan refuses any DOCTYPE, size/depth/item caps, http(s) links only (`safeFeedUrl`: https only), partial salvage (a cut-off document counts as an error), typed Parse errors, dates more than 5 min ahead replaced.
+- `.../data/news/Dedupe.kt`: canonical URL, normalised title, token Dice similarity (looser when summaries are identical); title and summary rules join only items of DIFFERENT feeds within 12 h and never when the titles move opposite ways (rise/fall words); merge keeps the earliest report and the union of tags.
 - `.../data/news/Relevance.kt`: `SymbolMatcher` (ticker upper case whole word, company names, distinctive first word) and `Relevance.labelOf`.
 - `.../data/news/FeedStore.kt`: `FeedStore` (`feeds.json` v1, fsync'd atomic writes, `.bak`, corrupt quarantine, newer-version read-only; add/remove/enable/rename/move/reset), `FeedSource`, `DefaultFeeds`, `FeedPlan` (effective feeds, auto per-symbol Yahoo feeds, cap 6).
 - `.../data/news/NewsCodec.kt`: JSON of one feed's cached items plus ETag/Last-Modified (`FeedSnapshot`), re-validated on read.
-- `.../data/news/NewsRepository.kt`: fetch (max 3 parallel), conditional GET, per-feed health and exponential backoff, offline short-circuit, merge/dedupe/retag/sort/cap/7-day cut, SWR cache hydrate, server `Date` offset, `StateFlow<NewsState>`.
+- `.../data/news/NewsRepository.kt`: fetch (max 3 parallel), conditional GET, per-feed health and exponential backoff (network/timeout errors capped at 10 min), offline short-circuit, requests during a running pass queued as one follow-up, an attempt counts only when it finishes, merge/dedupe/retag/sort/cap/7-day cut, SWR cache hydrate (a cache from a clock ahead of the device is Stale with an unknown age), median server `Date` offset (with `Age`), dominant error kind, `StateFlow<NewsState>`.
 - `.../data/news/NewsSource.kt`: the small interface the presenter needs from the repository.
 
 ## app/ (Android)
@@ -77,7 +77,7 @@
 - `app/src/main/java/com/marketsboard/AppGraph.kt`: hand-built dependency graph (fetcher, log, providers, cache in `filesDir/cache`, `WatchlistStore` in `filesDir/watchlist.json`, `QuoteRepository`, `MarketsData`, plus `FeedStore` in `filesDir/feeds.json` and `NewsRepository` on the same cache); takes a `File`, so it is JVM-testable.
 - `app/src/main/java/com/marketsboard/AppRuntime.kt`: process-scoped `RefreshController` + `MarketsPresenter` and `NewsPoller` + `NewsPresenter` on top of the graph; its `ActiveGate` is flipped by the Activity.
 - `app/src/main/java/com/marketsboard/AndroidClock.kt`: production `Clock` (monotonic = `elapsedRealtime`, so ages include deep sleep).
-- `app/src/main/java/com/marketsboard/ConnectivityNetworkSignal.kt`: `NetworkSignal` from a ConnectivityManager default-network callback.
+- `app/src/main/java/com/marketsboard/ConnectivityNetworkSignal.kt`: `NetworkSignal` from a ConnectivityManager default-network callback: fires on available and again when the network becomes VALIDATED (hotspot with working internet); shared by Markets and News.
 - `app/src/main/java/com/marketsboard/MarketsBoardApplication.kt`: Application; builds `AppGraph` and `AppRuntime` (crash-proof, null on failure).
 - `app/src/main/res/`: `values/themes.xml` (window bg #0A0A0B), `values/colors.xml`, `drawable/ic_launcher_fg.xml` (line chart glyph), `mipmap-anydpi-v26/ic_launcher.xml` (adaptive + monochrome).
 - `app/src/test/kotlin/com/marketsboard/ui/FormatTest.kt`: Format rounding, sign/colour agreement, time-ago.

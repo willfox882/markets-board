@@ -36,8 +36,10 @@ class NewsConfig(
     val backoffMaxMs: Long = 30L * 60_000L,
     val feedTimeoutMs: Long = 25_000L,
     val cacheTtlMs: Long = 7L * 86_400_000L + 3_600_000L,
-    /** Device clock differences below this are ignored when estimating server time. */
-    val offsetToleranceMs: Long = 60_000L,
+    /** Device clock differences up to this are ignored when estimating server time (Date headers are coarse and CDNs lag). */
+    val offsetToleranceMs: Long = 5L * 60_000L,
+    /** Timeouts and "no network" failures never wait longer than one poll period: the hotspot may be back any minute. */
+    val networkBackoffMaxMs: Long = 10L * 60_000L,
 )
 
 /**
@@ -86,8 +88,11 @@ class NewsRepository(
     private val gate = Semaphore(config.maxConcurrent.coerceAtLeast(1))
     private val passMutex = Mutex()
     private var passesCompleted = 0
+    /** A success (200 or 304) happened in this process: only then can the list be called Fresh. */
+    private var confirmed = false
     private var lastPassFailed = false
     private var serverOffsetMs = 0L
+    private val offsets = HashMap<String, Long>()
     private var matcher: SymbolMatcher? = null
     private var matcherFor: List<WatchItem>? = null
 
@@ -115,12 +120,14 @@ class NewsRepository(
                 continue
             }
             val okAt = if (snap.okAtMs > 0) snap.okAtMs else entry.savedAtMs
-            val age = (clock.nowMs() - okAt).coerceAtLeast(0)
+            // A negative age means the device clock is behind the time the cache was written (a head unit that booted with a
+            // wrong date): the age is unknown, so the list is Stale until a pass succeeds, never "Updated just now".
+            val rawAge = clock.nowMs() - okAt
             synchronized(lock) {
                 val r = rt.getOrPut(f.id) { Rt() }
                 if (r.snapshot == null) {
                     r.snapshot = snap
-                    r.lastOkMono = clock.monoMs() - age
+                    r.lastOkMono = if (rawAge < 0) null else clock.monoMs() - rawAge
                 }
             }
         }
@@ -141,45 +148,72 @@ class NewsRepository(
 
     // ---- refresh -----------------------------------------------------------------------------------------------
 
+    private class Request(val force: Boolean, val onlyFailed: Boolean) {
+        fun merge(o: Request) = Request(force || o.force, onlyFailed && o.onlyFailed)
+    }
+
+    private var pending: Request? = null
+
     /**
      * One pass over the feeds that are due. [force] (manual Refresh) ignores the minimum gap and backoff;
      * [onlyFailed] (network came back) retries feeds that failed or never answered, ignoring backoff.
-     * A pass already running makes this call return at once.
+     * A request that arrives while a pass is running is not dropped: it is merged into one follow-up pass that runs as
+     * soon as the current one ends (so a symbol added, the network returning or a resume during a pass still fetches).
      */
     suspend fun refresh(force: Boolean = false, onlyFailed: Boolean = false) {
-        if (!passMutex.tryLock()) return
-        try {
-            val feeds = effective()
-            prune(feeds)
-            hydrate()
-            val pass = Pass()
-            val now = clock.monoMs()
-            val due = synchronized(lock) {
-                feeds.filter { f ->
-                    val r = rt.getOrPut(f.id) { Rt() }
-                    val last = r.lastAttemptMono
-                    when {
-                        force -> true
-                        onlyFailed -> (r.lastError != null || last == null) && (last == null || now - last >= 5_000)
-                        else -> (last == null || now - last >= config.minGapMs) && now >= r.nextTryMono
+        synchronized(lock) { pending = pending?.merge(Request(force, onlyFailed)) ?: Request(force, onlyFailed) }
+        while (true) {
+            if (!passMutex.tryLock()) return // the running pass will pick the request up
+            try {
+                while (true) {
+                    val req = synchronized(lock) { pending.also { pending = null } } ?: break
+                    try {
+                        runPass(req)
+                    } catch (e: CancellationException) {
+                        // The pass was cut short (app paused): keep the request for whoever runs next.
+                        synchronized(lock) { pending = pending?.merge(req) ?: req }
+                        throw e
                     }
                 }
-            }
-            if (due.isEmpty()) { publish(); return }
-            setRefreshing(true)
-            try {
-                coroutineScope { due.map { f -> async { gate.withPermit { fetchOne(f, pass) } } }.awaitAll() }
             } finally {
-                setRefreshing(false)
+                passMutex.unlock()
             }
-            synchronized(lock) {
-                passesCompleted++
-                lastPassFailed = pass.attempted > 0 && pass.succeeded == 0
-            }
-            publish()
-        } finally {
-            passMutex.unlock()
+            // A request may have arrived between the last check and the unlock.
+            if (synchronized(lock) { pending == null }) return
         }
+    }
+
+    private suspend fun runPass(req: Request) {
+        val force = req.force
+        val onlyFailed = req.onlyFailed
+        val feeds = effective()
+        prune(feeds)
+        hydrate()
+        val pass = Pass()
+        val now = clock.monoMs()
+        val due = synchronized(lock) {
+            feeds.filter { f ->
+                val r = rt.getOrPut(f.id) { Rt() }
+                val last = r.lastAttemptMono
+                when {
+                    force -> true
+                    onlyFailed -> (r.lastError != null || last == null) && (last == null || now - last >= 5_000)
+                    else -> (last == null || now - last >= config.minGapMs) && now >= r.nextTryMono
+                }
+            }
+        }
+        if (due.isEmpty()) { publish(); return }
+        setRefreshing(true)
+        try {
+            coroutineScope { due.map { f -> async { gate.withPermit { fetchOne(f, pass) } } }.awaitAll() }
+        } finally {
+            setRefreshing(false)
+        }
+        synchronized(lock) {
+            passesCompleted++
+            lastPassFailed = pass.attempted > 0 && pass.succeeded == 0
+        }
+        publish()
     }
 
     private var refreshingNow = false
@@ -197,7 +231,7 @@ class NewsRepository(
             publish()
             return
         }
-        val snap = synchronized(lock) { rt.getOrPut(f.id) { Rt() }.also { it.lastAttemptMono = clock.monoMs() }.snapshot }
+        val snap = synchronized(lock) { rt.getOrPut(f.id) { Rt() }.snapshot }
         val headers = HashMap<String, String>()
         headers["Accept"] = "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5"
         if (snap != null && snap.items.isNotEmpty()) {
@@ -220,16 +254,18 @@ class NewsRepository(
         } catch (e: Throwable) {
             fail(f, FetchResult.Err(ErrorKind.Unknown, "${e.javaClass.simpleName}"), false, null, pass)
         }
+        // Only a finished attempt counts as one: a pass cut short by a pause leaves the feed due, so resuming retries it.
+        synchronized(lock) { rt[f.id]?.lastAttemptMono = clock.monoMs() }
         publish()
     }
 
     private suspend fun handle(f: FeedConfig, resp: HttpResponse, held: FeedSnapshot?, pass: Pass) {
         val err = resp.toError()
         if (resp.code == 304 && held != null) {
-            observeServerDate(resp)
+            observeServerDate(f.id, resp)
             synchronized(lock) {
                 rt.getValue(f.id).apply {
-                    status = FeedStatus.NotModified; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null; partial = false
+                    this@NewsRepository.confirmed = true; status = FeedStatus.NotModified; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null; partial = false
                     snapshot = held.copy(okAtMs = clock.nowMs())
                 }
             }
@@ -241,8 +277,7 @@ class NewsRepository(
             fail(f, err ?: FetchResult.Err(ErrorKind.Parse, "unexpected 304"), resp.offline, (err?.kind as? ErrorKind.RateLimited)?.retryAfterMs ?: resp.retryAfterMs, pass)
             return
         }
-        val serverNow = observeServerDate(resp)
-        val ref = serverNow ?: clock.nowMs()
+        val ref = observeServerDate(f.id, resp)
         val parsed = withContext(ioDispatcher) {
             val bytes = resp.bytes
             if (bytes != null) FeedParser.parse(bytes, ref, charsetOf(resp.headers["content-type"])) else FeedParser.parseText(resp.body, ref)
@@ -254,7 +289,7 @@ class NewsRepository(
                 val snap = FeedSnapshot(items, resp.headers["etag"]?.take(300), resp.headers["last-modified"]?.take(100), clock.nowMs())
                 synchronized(lock) {
                     rt.getValue(f.id).apply {
-                        status = FeedStatus.Ok; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null
+                        this@NewsRepository.confirmed = true; status = FeedStatus.Ok; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null
                         partial = parsed.value.partial; snapshot = snap
                     }
                 }
@@ -291,11 +326,23 @@ class NewsRepository(
         return Relevance.labelOf(item)
     }
 
-    private fun observeServerDate(resp: HttpResponse): Long? {
-        val server = FeedDates.parse(resp.headers["date"]) ?: return null
-        val diff = server - clock.nowMs()
-        synchronized(lock) { serverOffsetMs = if (Math.abs(diff) > config.offsetToleranceMs) diff else 0L }
-        return server
+    /**
+     * Records how far the server's clock is from the device's (the response `Date` plus its `Age`, when a cache served it)
+     * and returns the corrected "now" for this response. The offset is the MEDIAN over feeds, so one server with a wrong
+     * clock cannot move it, and only skew above the tolerance counts.
+     */
+    private fun observeServerDate(feedId: String, resp: HttpResponse): Long {
+        val date = FeedDates.parse(resp.headers["date"])
+        if (date != null) {
+            val ageMs = (resp.headers["age"]?.trim()?.toLongOrNull() ?: 0L).coerceIn(0L, 86_400L) * 1000L
+            synchronized(lock) {
+                offsets[feedId] = date + ageMs - clock.nowMs()
+                val sorted = offsets.values.sorted()
+                val median = if (sorted.size % 2 == 1) sorted[sorted.size / 2] else (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2
+                serverOffsetMs = if (Math.abs(median) > config.offsetToleranceMs) median else 0L
+            }
+        }
+        return clock.nowMs() + synchronized(lock) { serverOffsetMs }
     }
 
     private fun fail(f: FeedConfig, err: FetchResult.Err, offline: Boolean, retryAfterMs: Long?, pass: Pass) {
@@ -305,7 +352,8 @@ class NewsRepository(
                 failures++
                 lastKind = err.kind
                 lastError = NewsText.feedError(err.kind)
-                val exp = (config.backoffBaseMs shl (failures - 1).coerceIn(0, 20)).coerceAtMost(config.backoffMaxMs)
+                val cap = if (err.kind == ErrorKind.Network || err.kind == ErrorKind.Timeout) config.networkBackoffMaxMs else config.backoffMaxMs
+                val exp = (config.backoffBaseMs shl (failures - 1).coerceIn(0, 20)).coerceAtMost(cap)
                 val delay = when {
                     offline -> 0L
                     retryAfterMs != null -> maxOf(retryAfterMs, exp).coerceAtMost(config.backoffMaxMs)
@@ -342,12 +390,14 @@ class NewsRepository(
         var passDone: Boolean
         var failed: Boolean
         var refreshing: Boolean
-        var firstKind: ErrorKind? = null
+        val kinds = ArrayList<ErrorKind>()
+        var confirmedNow: Boolean
         synchronized(lock) {
             offset = serverOffsetMs
             passDone = passesCompleted > 0
             failed = lastPassFailed
             refreshing = refreshingNow
+            confirmedNow = confirmed
             feeds.forEachIndexed { rank, f ->
                 val r = rt[f.id]
                 states.add(
@@ -357,7 +407,7 @@ class NewsRepository(
                     ),
                 )
                 r?.lastOkMono?.let { if (lastOk == null || it > lastOk!!) lastOk = it }
-                if (firstKind == null) firstKind = r?.lastKind
+                if (r?.lastError != null) r.lastKind?.let { kinds.add(it) }
                 val oldest = clock.nowMs() + offset - config.maxAgeMs
                 r?.snapshot?.items?.forEach { h ->
                     if (h.publishedMs >= oldest) {
@@ -372,16 +422,22 @@ class NewsRepository(
         }
         val items = Dedupe.merge(entries).sortedWith(compareByDescending<Headline> { it.publishedMs }.thenBy { it.id }).take(config.maxItems)
         val age = lastOk?.let { (mono - it).coerceAtLeast(0) }
+        val dominant = dominantKind(kinds)
         val overall: NewsOverall = when {
-            items.isEmpty() && !passDone && age == null -> NewsOverall.Loading
-            items.isEmpty() && age == null -> NewsOverall.Error(firstKind ?: ErrorKind.Network)
-            age != null && age <= config.staleAfterMs && passDone -> NewsOverall.Fresh
-            age != null && age <= config.staleAfterMs && items.isEmpty() -> NewsOverall.Fresh
-            age != null -> NewsOverall.Stale(age)
-            else -> NewsOverall.Stale(0)
+            items.isEmpty() && age == null -> if (!passDone) NewsOverall.Loading else NewsOverall.Error(dominant ?: ErrorKind.Network)
+            age == null -> NewsOverall.Stale(0, ageKnown = false) // held items whose age cannot be trusted (clock behind the cache)
+            confirmedNow && age <= config.staleAfterMs -> NewsOverall.Fresh
+            else -> NewsOverall.Stale(age)
         }
-        _state.value = NewsState(items, states, overall, refreshing, age, failed, offset)
+        _state.value = NewsState(items, states, overall, refreshing, age, failed, offset, dominant)
     }
+}
+
+/** The failure most feeds share (ties go to the more actionable kind), so the banner can tell the truth. */
+internal fun dominantKind(kinds: List<ErrorKind>): ErrorKind? {
+    if (kinds.isEmpty()) return null
+    fun rank(k: ErrorKind) = when (k) { ErrorKind.ClockOrTls -> 0; is ErrorKind.RateLimited -> 1; ErrorKind.Network -> 2; ErrorKind.Timeout -> 3; ErrorKind.Parse -> 4; is ErrorKind.Http -> 5; else -> 6 }
+    return kinds.groupBy { it.label }.values.sortedWith(compareByDescending<List<ErrorKind>> { it.size }.thenBy { rank(it.first()) }).first().first()
 }
 
 private fun charsetOf(contentType: String?): String? =

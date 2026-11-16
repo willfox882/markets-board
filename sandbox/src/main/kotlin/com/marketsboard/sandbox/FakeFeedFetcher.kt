@@ -105,6 +105,7 @@ class FakeFeedFetcher(
     private fun feedIdOf(host: String, uri: URI): String? = when {
         host.endsWith("cbc.ca") -> "cbc-business"
         host.endsWith("theglobeandmail.com") -> "globe-business"
+        host.endsWith("financialpost.com") -> "financial-post"
         host == "finance.yahoo.com" -> "yahoo-top"
         host.endsWith("dowjones.io") -> "marketwatch-top"
         host == "feeds.finance.yahoo.com" -> "sym:" + (query(uri)["s"] ?: "")
@@ -121,6 +122,7 @@ class FakeFeedFetcher(
 
     private fun body(feedId: String, uri: URI): String = when {
         feedId == "cbc-business" -> rss("CBC | Business News", "https://www.cbc.ca/news/business", "cbc-business", rfcStyle = 0)
+        feedId == "financial-post" -> rss("Financial Post", "https://financialpost.com", "financial-post", rfcStyle = 1)
         feedId == "yahoo-top" -> rss("Yahoo Finance", "https://finance.yahoo.com/news", "yahoo-top", rfcStyle = 1)
         feedId == "marketwatch-top" -> rss("MarketWatch.com - Top Stories", "https://www.marketwatch.com", "marketwatch-top", rfcStyle = 2)
         feedId == "globe-business" -> atom("The Globe and Mail: Business", "globe-business")
@@ -155,6 +157,7 @@ class FakeFeedFetcher(
             val href = when (feedId) {
                 "cbc-business" -> "https://www.cbc.ca/news/business/${s.path}-1.7${abs(s.key)}"
                 "yahoo-top" -> "https://finance.yahoo.com/news/${s.path}.html"
+                "financial-post" -> "https://financialpost.com/news/economy/${s.path}"
                 else -> "https://www.marketwatch.com/story/${s.path}-${abs(s.key)}?mod=mw_rss_topstories&utm_source=rss"
             }
             item(s.titles.getValue(feedId), href, "$feedId-${s.key}", date(s, rfcStyle), s.summaryHtml, extra = if (rfcStyle == 2) "<dc:creator>Staff</dc:creator>" else "")
@@ -260,15 +263,15 @@ $entries
                 260, "<p>BlackRock's iShares said the new exchange-traded funds will list on the Toronto Stock Exchange next week.</p>", "ishares-new-funds",
             ),
             Story(
-                "cad", mapOf("cbc-business" to "Canadian dollar steady near 72 cents US ahead of jobs data"),
+                "cad", mapOf("cbc-business" to "Canadian dollar steady near 72 cents US ahead of jobs data", "financial-post" to "Loonie steady near 72 US cents as traders await jobs report"),
                 310, "<p>The loonie traded at 72.1 cents US as investors waited for Friday's labour report.</p>", "canadian-dollar-steady",
             ),
             Story(
-                "loblaw", mapOf("globe-business" to "Loblaw raises dividend after stronger-than-expected quarterly profit"),
+                "loblaw", mapOf("globe-business" to "Loblaw raises dividend after stronger-than-expected quarterly profit", "financial-post" to "Loblaw lifts dividend as grocery sales beat expectations"),
                 380, "<p>The grocer said same-store sales rose 3.4 per cent.</p>", "loblaw-dividend",
             ),
             Story(
-                "oil", mapOf("globe-business" to "Oil prices slip as OPEC+ signals higher output next year", "marketwatch-top" to "Oil slips as OPEC+ hints at higher output in 2027", "yahoo-top" to "Oil falls as OPEC+ signals more supply next year"),
+                "oil", mapOf("globe-business" to "Oil prices slip as OPEC+ signals higher output next year", "financial-post" to "Oil slides as OPEC+ eyes bigger output in 2027", "marketwatch-top" to "Oil slips as OPEC+ hints at higher output in 2027", "yahoo-top" to "Oil falls as OPEC+ signals more supply next year"),
                 430, "<p>West Texas Intermediate fell 1.2 per cent to $61.40 US a barrel.</p>", "oil-prices-slip",
             ),
             Story(
@@ -280,7 +283,7 @@ $entries
                 600, "<p>Consumer prices rose 0.2 per cent in October, matching forecasts.</p>", "us-inflation-report",
             ),
             Story(
-                "statcan", mapOf("cbc-business" to "Statistics Canada says unemployment rate held at 6.6 per cent"),
+                "statcan", mapOf("cbc-business" to "Statistics Canada says unemployment rate held at 6.6 per cent", "financial-post" to "Canada adds 14,000 jobs in October as jobless rate holds at 6.6%"),
                 700, "<p>The economy added 14,000 jobs in October, mostly in health care and education.</p>", "statcan-jobs",
             ),
             Story(
@@ -296,7 +299,7 @@ $entries
                 1_300, "<p>Both sides said they would return to the table on Monday.</p>", "canada-post-talks",
             ),
             Story(
-                "housing", mapOf("cbc-business" to "Housing starts rise in October, led by rental construction"),
+                "housing", mapOf("cbc-business" to "Housing starts rise in October, led by rental construction", "financial-post" to "Housing starts climb in October on strong rental building"),
                 1_700, "<p>CMHC says the annual pace of starts reached 262,000 units.</p>", "housing-starts",
             ),
             Story(
@@ -310,7 +313,7 @@ $entries
                 2_600, "<p>A report from the funds' joint research group says investors should expect lower returns from private equity, infrastructure and real estate through 2030, and that managers will need to cut fees to keep clients.</p>", "pension-funds-warn",
             ),
             Story(
-                "tfsa", mapOf("cbc-business" to "Federal budget: what it means for TFSA and RRSP limits"),
+                "tfsa", mapOf("cbc-business" to "Federal budget: what it means for TFSA and RRSP limits", "financial-post" to "Budget 2026: what changes for your TFSA and RRSP"),
                 3_200, "<p>The TFSA limit stays at $7,000 for 2027.</p>", "budget-tfsa-rrsp",
             ),
         )

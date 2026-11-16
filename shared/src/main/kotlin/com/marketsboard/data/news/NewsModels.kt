@@ -70,7 +70,7 @@ sealed interface NewsOverall {
     data object Fresh : NewsOverall
 
     /** Items are shown but the newest success is old (or only the cache was loaded). */
-    data class Stale(val ageMs: Long) : NewsOverall
+    data class Stale(val ageMs: Long, val ageKnown: Boolean = true) : NewsOverall
 
     /** Nothing to show and every feed of the last pass failed. */
     data class Error(val kind: ErrorKind) : NewsOverall
@@ -87,4 +87,6 @@ data class NewsState(
     val lastPassFailed: Boolean = false,
     /** Server time minus device time seen on the last response: add to the device clock to get real time. */
     val serverOffsetMs: Long = 0,
+    /** The failure most feeds currently share (null when none fails), so the screen can say why. */
+    val errorKind: ErrorKind? = null,
 )

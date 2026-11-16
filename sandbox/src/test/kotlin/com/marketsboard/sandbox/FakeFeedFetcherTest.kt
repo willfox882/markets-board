@@ -37,8 +37,8 @@ class FakeFeedFetcherTest {
     }
 
     @Test fun formatsAreVariedRssAndAtom() {
-        assertEquals("rss", parse(DefaultFeeds.ALL[0].url).format)
-        assertEquals("atom", parse(DefaultFeeds.ALL[1].url).format)
+        assertEquals("rss", parse(DefaultFeeds.ALL.first { it.id == "cbc-business" }.url).format)
+        assertEquals("atom", parse(DefaultFeeds.ALL.first { it.id == "globe-business" }.url).format)
     }
 
     @Test fun summariesAreHtmlThatTheParserTurnsIntoPlainText() {
@@ -92,15 +92,15 @@ class FakeFeedFetcherTest {
     @Test fun oneFeedFailingFailsOnlyCbc() = runBlocking {
         val f = fetcher(FakeNewsBehavior.OneFeedFailing)
         assertEquals(503, f.get(DefaultFeeds.ALL[0].url).code)
-        assertEquals(200, f.get(DefaultFeeds.ALL[1].url).code)
+        assertEquals(200, f.get(DefaultFeeds.ALL.first { it.id == "globe-business" }.url).code)
         Unit
     }
 
     @Test fun malformedFeedsGiveALoginPageAndATruncatedAtomFeedThatIsPartlyReadable() = runBlocking {
         val f = fetcher(FakeNewsBehavior.MalformedFeeds)
-        val html = f.get(DefaultFeeds.ALL[2].url)
+        val html = f.get(DefaultFeeds.ALL.first { it.id == "yahoo-top" }.url)
         assertTrue(FeedParser.parse(html.bytes ?: html.body.toByteArray(), now) is FetchResult.Err)
-        val globe = f.get(DefaultFeeds.ALL[1].url)
+        val globe = f.get(DefaultFeeds.ALL.first { it.id == "globe-business" }.url)
         val p = (FeedParser.parse(globe.body.toByteArray(), now) as FetchResult.Ok).value
         assertTrue(p.partial)
         assertTrue("salvaged ${p.items.size}", p.items.size in 3..5)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -244,21 +245,24 @@ fun ValueRow(title: String, value: String, modifier: Modifier = Modifier, onClic
     }
 }
 
-/** Two or more mutually exclusive options as a pill track (same look as the chart range pills), 44 dp tall segments. */
+/**
+ * Light text tabs on a hairline: the selected option is white with a 2 dp underline, the others dim. 44 dp tall, much
+ * less heavy than a pill track, so the content below starts higher.
+ */
 @Composable
-fun SegmentedControl(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(Dash.surfaceHigh).padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        options.forEachIndexed { i, label ->
-            val on = i == selected
-            Box(
-                Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(50)).background(if (on) Dash.text else Dash.surfaceHigh)
-                    .clickable { onSelect(i) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, color = if (on) Dash.onLight else Dash.dim, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+fun TextToggle(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(44.dp)) {
+        Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(1.dp).background(Dash.line))
+        Row(Modifier.fillMaxHeight().offset(x = (-12).dp)) {
+            options.forEachIndexed { i, label ->
+                val on = i == selected
+                Box(Modifier.fillMaxHeight().clickable { onSelect(i) }.padding(horizontal = 12.dp).width(IntrinsicSize.Max)) {
+                    Text(
+                        label, color = if (on) Dash.text else Dash.dim, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                    if (on) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp).background(Dash.text))
+                }
             }
         }
     }

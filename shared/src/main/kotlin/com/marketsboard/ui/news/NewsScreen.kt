@@ -19,11 +19,18 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -37,8 +44,9 @@ import com.marketsboard.ui.LocalBackHook
 import com.marketsboard.ui.LocalOpenUrl
 import com.marketsboard.ui.PillButton
 import com.marketsboard.ui.PillKind
+import com.marketsboard.data.news.FeedParser
 import com.marketsboard.ui.ScreenTitle
-import com.marketsboard.ui.SegmentedControl
+import com.marketsboard.ui.TextToggle
 import com.marketsboard.ui.TextAction
 import com.marketsboard.ui.UiMode
 import com.marketsboard.ui.markets.BackChevron
@@ -61,6 +69,7 @@ fun NewsScreen(state: NewsUiState, modifier: Modifier = Modifier, actions: NewsA
 @Composable
 private fun NewsList(state: NewsUiState, actions: NewsActions) {
     val glance = state.mode == UiMode.Glance
+    val alert = state.banner.isNotEmpty() && state.phase != NewsPhase.Error
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -70,18 +79,19 @@ private fun NewsList(state: NewsUiState, actions: NewsActions) {
                     TextAction("Refresh", if (state.refreshing) ({}) else actions::onRefresh, Modifier.offset(x = 10.dp), color = if (state.refreshing) Dash.faint else Dash.text)
                 }
             }
-            if (state.statusLine.isNotEmpty() || state.refreshing) NewsStatus(state)
+            if (alert) NewsAlert(state.banner, state.statusLine, actions::onRetry)
+            else if (state.statusLine.isNotEmpty() || state.refreshing) NewsStatus(state)
         }
-        if (state.banner.isNotEmpty() && state.phase != NewsPhase.Error) item { NewsBanner(state.banner, actions::onRetry) }
         if (!glance) {
             item {
-                SegmentedControl(
+                TextToggle(
                     listOf("All", "My symbols"), if (state.filter == NewsFilter.All) 0 else 1,
-                    { actions.onSetFilter(if (it == 0) NewsFilter.All else NewsFilter.MySymbols) }, Modifier.padding(top = 16.dp),
+                    { actions.onSetFilter(if (it == 0) NewsFilter.All else NewsFilter.MySymbols) }, Modifier.padding(top = if (alert) 0.dp else 8.dp),
                 )
             }
+        } else {
+            item { Hairline(Modifier.padding(top = 14.dp)) }
         }
-        item { Hairline(Modifier.padding(top = 14.dp)) }
         when (state.phase) {
             NewsPhase.Loading -> items(5) { Column { SkeletonRow(); Hairline() } }
             NewsPhase.Error -> item { ErrorState(state.banner, actions::onRetry) }
@@ -111,16 +121,23 @@ private fun NewsStatus(s: NewsUiState) {
     }
 }
 
-/** Thin amber band: what is wrong in plain words and a Retry in its own column. */
+/**
+ * ONE line when the list is stale or a pass failed: amber dot, the reason (amber) and how old the headlines are (dim), with
+ * Retry in its own column at the right.
+ */
 @Composable
-private fun NewsBanner(text: String, onRetry: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(10.dp)).background(Dash.surface).padding(start = 12.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Dot(Dash.amber, 6)
-        Text(text, color = Dash.amber, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f).padding(start = 8.dp, end = 8.dp))
-        TextAction("Retry", onRetry, color = Dash.text)
+private fun NewsAlert(reason: String, status: String, onRetry: () -> Unit) {
+    val age = status.removePrefix("Updated ").takeIf { status.startsWith("Updated ") }
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Dot(Dash.amber, 8)
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = Dash.amber, fontWeight = FontWeight.Medium)) { append(reason) }
+                if (age != null) withStyle(SpanStyle(color = Dash.dim)) { append("  \u00b7  $age") }
+            },
+            fontSize = 14.sp, lineHeight = 19.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 8.dp),
+        )
+        TextAction("Retry", onRetry, Modifier.padding(start = 8.dp).offset(x = 10.dp), color = Dash.text)
     }
 }
 
@@ -252,9 +269,19 @@ fun NewsDetail(d: HeadlineDetailUi, actions: NewsActions, modifier: Modifier = M
             }
         }
         item {
+            var noBrowser by remember(d.id) { mutableStateOf(false) }
             Column(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                PillButton("Open article", { open(d.url) }, Modifier.fillMaxWidth(), kind = PillKind.Primary)
-                if (d.host.isNotEmpty()) Text("Opens ${d.host}", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                PillButton(
+                    "Open article", { noBrowser = FeedParser.safeUrl(d.url)?.let { u -> !open(u) } ?: true }, Modifier.fillMaxWidth(), kind = PillKind.Secondary,
+                )
+                if (noBrowser) {
+                    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Dot(Dash.amber, 6)
+                        Text("No browser on this device", color = Dash.amber, fontSize = 13.sp, modifier = Modifier.padding(start = 8.dp))
+                    }
+                } else if (d.host.isNotEmpty()) {
+                    Text("Opens ${d.host}", color = Dash.dim, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                }
             }
         }
     }

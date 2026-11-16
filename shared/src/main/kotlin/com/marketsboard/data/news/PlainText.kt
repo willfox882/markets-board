@@ -21,7 +21,11 @@ object PlainText {
     private val DANGLING_TAG = Regex("<[A-Za-z/!?][^<>]*$")
     private val ENTITY = Regex("&(#[xX][0-9a-fA-F]{1,10}|#[0-9]{1,12}|[A-Za-z][A-Za-z0-9]{1,10});")
     private val SPACE = Regex("[\\s\\u00A0\\u2000-\\u200A\\u202F\\u205F\\u3000]+")
-    private val INVISIBLE = Regex("[\\u200B-\\u200D\\u2060\\uFEFF\\u00AD\\u202A-\\u202E]")
+    /** Zero-width characters, soft hyphen, and every bidirectional control (marks, embeddings, overrides, isolates). */
+    private val INVISIBLE = Regex(
+        listOf(0x200B..0x200F, 0x2060..0x2060, 0xFEFF..0xFEFF, 0x00AD..0x00AD, 0x202A..0x202E, 0x2066..0x2069)
+            .joinToString("", "[", "]") { r -> "\\u%04X-\\u%04X".format(r.first, r.last) },
+    )
     private val CONTROL = Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]")
 
     /** Plain text of [raw] clamped to [max] characters (the cut lands on a word boundary and ends with an ellipsis). */

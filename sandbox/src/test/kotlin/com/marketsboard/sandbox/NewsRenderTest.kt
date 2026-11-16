@@ -214,6 +214,16 @@ class NewsRenderTest {
 
     // ---- tab bar and back --------------------------------------------------------------------------------------------
 
+    @Test fun theStaleAlertIsOneLineAndTheToggleIsLightSoTheFirstHeadlineStartsHigh() {
+        val healthy = pixels(440, 900, root(F.news()))
+        val stale = pixels(440, 900, root(F.newsStale()))
+        // the toggle's hairline is the first long horizontal line below the header; rows start right after it
+        fun hairlineY(p: IntArray) = (95 until 300).first { y -> (20 until 420).count { x -> val px = p[y * 440 + x]; abs(((px shr 16) and 0xFF) - 0x28) <= 3 && !isBg(px) } > 300 }
+        assertTrue("healthy hairline at ${hairlineY(healthy)}", hairlineY(healthy) < 160)
+        // stale adds at most one 24 dp line over the healthy layout (status and banner are folded into one row)
+        assertTrue("stale ${hairlineY(stale)} vs healthy ${hairlineY(healthy)}", hairlineY(stale) - hairlineY(healthy) <= 26)
+    }
+
     @Test fun theTabBarStepsAsideForTheArticle() {
         fun bottomInk(p: IntArray) = (840 until 900).sumOf { y -> (0 until 440).count { x -> !isBg(p[y * 440 + x]) } }
         assertTrue("list has the tab bar", bottomInk(pixels(440, 900, root(F.news()))) > 200)
@@ -245,9 +255,9 @@ class NewsRenderTest {
         override fun onBack() { calls += "back" }
     }
 
-    private fun tapGrid(state: NewsUiState, rec: Rec, opened: MutableList<String> = mutableListOf(), height: Int = 900) {
+    private fun tapGrid(state: NewsUiState, rec: Rec, opened: MutableList<String> = mutableListOf(), height: Int = 900, openResult: Boolean = true) {
         val scene = ImageComposeScene(width = 440, height = height, density = Density(1f)) {
-            MarketsBoardTheme { CompositionLocalProvider(LocalOpenUrl provides { opened += it }) { NewsScreen(state, actions = rec) } }
+            MarketsBoardTheme { CompositionLocalProvider(LocalOpenUrl provides { opened += it; openResult }) { NewsScreen(state, actions = rec) } }
         }
         try {
             for (i in 0 until 3) scene.render(i * 100_000_000L)
@@ -288,6 +298,32 @@ class NewsRenderTest {
         val url = F.newsDetail().detail!!.url
         assertTrue("Open article hands the link to the platform: $opened", opened.isNotEmpty() && opened.all { it == url })
         assertTrue(url.startsWith("https://") || url.startsWith("http://"))
+    }
+
+    @Test fun aFailedOpenShowsNoBrowserInAmber() {
+        fun amber(open: Boolean): Int {
+            val scene = ImageComposeScene(width = 440, height = 1000, density = Density(1f)) {
+                MarketsBoardTheme { CompositionLocalProvider(LocalOpenUrl provides { open }) { NewsScreen(F.newsDetail()) } }
+            }
+            try {
+                for (i in 0 until 3) scene.render(i * 100_000_000L)
+                var t = 1_000L
+                for (y in 200 until 1000 step 20) for (x in 20 until 420 step 30) {
+                    val pos = Offset(x.toFloat(), y.toFloat())
+                    scene.sendPointerEvent(PointerEventType.Press, pos, timeMillis = t)
+                    scene.render(t * 1_000_000L)
+                    scene.sendPointerEvent(PointerEventType.Release, pos, timeMillis = t + 30)
+                    scene.render((t + 30) * 1_000_000L)
+                    t += 400
+                }
+                scene.render((t + 1000) * 1_000_000L)
+                return scene.render((t + 1100) * 1_000_000L).toComposeImageBitmap().toPixelMap().buffer.count { chroma(it) > 20 && hueDistance(hue(it), hueOf(Dash.amber)) < 25 }
+            } finally {
+                scene.close()
+            }
+        }
+        assertEquals("a working browser shows no amber", 0, amber(true))
+        assertTrue("no browser says so", amber(false) > 40)
     }
 
     @Test fun errorAndBannerRetryActions() {

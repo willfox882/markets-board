@@ -48,6 +48,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 
+    // The platform XmlPullParser on a phone; on the JVM unit-test classpath the real kxml2 classes stand in for the android.jar stubs.
+    testImplementation(libs.kxml2)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }

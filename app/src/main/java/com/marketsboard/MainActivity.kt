@@ -59,15 +59,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Opens an http(s) link in the system browser. Any failure (no browser on the head unit, bad link) is ignored. */
-    private fun openUrl(url: String) {
-        try {
-            val uri = Uri.parse(url)
-            if (uri.scheme != "http" && uri.scheme != "https") return
+    /** Opens an http(s) link in the system browser; false when there is no browser or the link is not a web link. */
+    private fun openUrl(url: String): Boolean = try {
+        val uri = Uri.parse(url)
+        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
+        if (scheme != "http" && scheme != "https") {
+            false
+        } else {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
-        } catch (e: Throwable) {
-            Log.w("MarketsBoard", "could not open link", e)
+            true
         }
+    } catch (e: Throwable) {
+        Log.w("MarketsBoard", "could not open link", e)
+        false
     }
 
     /** Refreshing runs only while the Activity is resumed (see RefreshController). */

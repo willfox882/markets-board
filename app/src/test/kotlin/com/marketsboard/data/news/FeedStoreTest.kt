@@ -20,7 +20,8 @@ class FeedStoreTest {
     @Test fun freshStoreHasTheFourDefaultFeedsAndPersistsThem() {
         val (s, dir) = store()
         assertEquals(LoadStatus.Fresh, s.loadStatus)
-        assertEquals(listOf("cbc-business", "globe-business", "yahoo-top", "marketwatch-top"), s.feeds.value.map { it.id })
+        assertEquals(listOf("cbc-business", "globe-business", "financial-post", "yahoo-top", "marketwatch-top"), s.feeds.value.map { it.id })
+        assertEquals("https://financialpost.com/feed", s.feeds.value.first { it.id == "financial-post" }.url)
         assertTrue(s.feeds.value.all { it.enabled && it.url.startsWith("https://") })
         assertEquals("https://www.cbc.ca/webfeed/rss/rss-business", s.feeds.value[0].url)
         assertTrue(s.symbolFeeds.value)
@@ -32,7 +33,7 @@ class FeedStoreTest {
         assertTrue(s.add("My blog", "https://example.com/feed.xml") is FeedEdit.Done)
         assertTrue(s.setEnabled("globe-business", false) is FeedEdit.Done)
         assertTrue(s.rename("cbc-business", "  CBC   News ") is FeedEdit.Done)
-        assertTrue(s.move(4, 0) is FeedEdit.Done)
+        assertTrue(s.move(5, 0) is FeedEdit.Done)
         assertTrue(s.setSymbolFeeds(false) is FeedEdit.Done)
         val again = FeedStore(File(dir, "feeds.json"), clock)
         assertEquals(LoadStatus.Loaded, again.loadStatus)
@@ -46,7 +47,7 @@ class FeedStoreTest {
     @Test fun removeAndResetToDefaults() {
         val (s, _) = store()
         assertTrue(s.remove("yahoo-top") is FeedEdit.Done)
-        assertEquals(3, s.feeds.value.size)
+        assertEquals(4, s.feeds.value.size)
         assertEquals(FeedEdit.NotFound, s.remove("nope"))
         assertTrue(s.resetToDefaults() is FeedEdit.Done)
         assertEquals(DefaultFeeds.ALL, s.feeds.value)
@@ -60,7 +61,19 @@ class FeedStoreTest {
         val dup = s.add("again", "https://www.cbc.ca/webfeed/rss/rss-business?utm_source=x")
         assertTrue(dup is FeedEdit.Duplicate)
         assertEquals("cbc-business", (dup as FeedEdit.Duplicate).existing.id)
-        assertEquals(4, s.feeds.value.size)
+        assertEquals(5, s.feeds.value.size)
+    }
+
+    @Test fun feedsMustBeHttpsWhateverTheCase() {
+        val (s, dir) = store()
+        for (bad in listOf("http://example.com/feed.xml", "HTTP://example.com/feed.xml", "Http://example.com/f")) {
+            val r = s.add("x", bad)
+            assertTrue("$bad: $r", r is FeedEdit.Invalid && r.reason.contains("https"))
+        }
+        assertTrue(s.add("ok", "HTTPS://example.com/feed.xml") is FeedEdit.Done)
+        // a stored http feed (hand edited, or from an older build) is dropped on load, never fetched in clear
+        File(dir, "feeds.json").writeText("""{"version":1,"feeds":[{"id":"a","name":"Plain","url":"http://e.com/a"},{"id":"b","name":"Secure","url":"https://e.com/b"}]}""")
+        assertEquals(listOf("b"), FeedStore(File(dir, "feeds.json"), clock).feeds.value.map { it.id })
     }
 
     @Test fun addGivesAnEmptyNameTheHostAndKeepsIdsUnique() {
@@ -183,9 +196,9 @@ class FeedPlanTest {
     @Test fun effectiveFeedsSkipDisabledOnesAndHonourTheSwitch() {
         val stored = DefaultFeeds.ALL.map { if (it.id == "yahoo-top") it.copy(enabled = false) else it }
         val on = FeedPlan.effective(stored, watch.take(2), true)
-        assertEquals(listOf("cbc-business", "globe-business", "marketwatch-top", "sym:XEQT.TO", "sym:MSFT"), on.map { it.id })
+        assertEquals(listOf("cbc-business", "globe-business", "financial-post", "marketwatch-top", "sym:XEQT.TO", "sym:MSFT"), on.map { it.id })
         val off = FeedPlan.effective(stored, watch.take(2), false)
-        assertEquals(3, off.size)
+        assertEquals(4, off.size)
         assertTrue(FeedPlan.effective(stored, emptyList(), true).none { it.auto })
     }
 }

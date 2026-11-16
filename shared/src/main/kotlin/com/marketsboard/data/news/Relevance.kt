@@ -35,6 +35,7 @@ class SymbolMatcher(items: List<WatchItem>) {
             "group", "holdings", "holding", "class", "common", "shares", "share", "units", "unit", "ordinary", "the", "portfolio", "index",
             "sa", "nv", "ag", "lp", "llc", "adr", "registered", "new", "de", "cv",
         )
+        val FUND_WORDS = setOf("etf", "fund", "trust", "index", "portfolio", "funds")
         val GENERIC_FIRST = setOf(
             "royal", "canadian", "american", "national", "united", "first", "global", "general", "north", "south", "west", "east",
             "bank", "international", "capital", "financial", "energy", "gold", "silver", "crude", "natural",
@@ -56,12 +57,14 @@ class SymbolMatcher(items: List<WatchItem>) {
             val names = LinkedHashSet<String>()
             for (n in nameSources) {
                 val words = n.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                val isFund = words.any { it.lowercase(Locale.ROOT).trimEnd(',', '.') in FUND_WORDS }
                 var core = words
                 while (core.size > 1 && core.last().lowercase(Locale.ROOT).trimEnd(',', '.') in SUFFIXES) core = core.dropLast(1)
                 val phrase = core.joinToString(" ").trimEnd(',', '.')
                 if (phrase.length >= 4 && core.size >= 2) names.add(phrase)
                 val first = core.firstOrNull()?.trimEnd(',', '.').orEmpty()
-                if (first.length >= 5 && first.lowercase(Locale.ROOT) !in GENERIC_FIRST && first.any { it.isLetter() }) names.add(first)
+                // A fund family ("iShares") names hundreds of funds: only the full fund name or the ticker may tag those.
+                if (!isFund && first.length >= 5 && first.lowercase(Locale.ROOT) !in GENERIC_FIRST && first.any { it.isLetter() }) names.add(first)
                 if (core.size == 1 && phrase.length >= 4 && phrase.lowercase(Locale.ROOT) !in GENERIC_FIRST) names.add(phrase)
             }
             if (ticker == null && names.isEmpty()) return null

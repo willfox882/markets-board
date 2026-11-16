@@ -273,14 +273,73 @@ class NewsRepositoryTest {
         assertEquals(3, r.fetcher.maxActive)
     }
 
-    @Test fun aSecondRefreshWhileOneRunsIsIgnored() = runTest {
+    @Test fun aRequestDuringARunningPassIsQueuedAsOneFollowUpPass() = runTest {
         val r = rig(this, delayMs = 1_000) { _, _ -> ok(xml("Story")) }
         val a = launch { r.repo.refresh() }
         runCurrent()
         val b = launch { r.repo.refresh(force = true) }
-        advanceTimeBy(2_000)
+        val c = launch { r.repo.refresh(force = true) }
+        advanceTimeBy(5_000)
+        a.join(); b.join(); c.join()
+        assertEquals("one pass plus ONE follow-up for the two queued requests", 2, r.fetcher.urls.size)
+    }
+
+    @Test fun aFeedAddedDuringARunningPassIsFetchedByTheFollowUp() = runTest {
+        val r = rig(this, delayMs = 1_000) { _, _ -> ok(xml("Story")) }
+        val a = launch { r.repo.refresh() }
+        runCurrent()
+        r.feeds.feedFlow.value = listOf(FEED_A, FEED_B)
+        val b = launch { r.repo.refresh() } // what the poller does on a config change
+        advanceTimeBy(5_000)
         a.join(); b.join()
-        assertEquals(1, r.fetcher.urls.size)
+        assertTrue(r.fetcher.urls.any { it.contains("/b.xml") })
+        assertEquals(2, r.repo.state.value.feedStates.count { it.status == FeedStatus.Ok })
+    }
+
+    @Test fun networkBackDuringARunningPassStillRetriesTheFailedFeed() = runTest {
+        var failA = true
+        val r = rig(this, listOf(FEED_A, FEED_B), delayMs = 500) { url, _ -> if (url.contains("/a.xml") && failA) HttpResponse(500, "") else ok(xml("S ${url.length}")) }
+        r.repo.refresh()
+        failA = false
+        r.clock.advance(10_000)
+        val running = launch { r.repo.refresh(force = true) }
+        runCurrent()
+        val net = launch { r.repo.refresh(onlyFailed = true) }
+        advanceTimeBy(5_000)
+        running.join(); net.join()
+        assertEquals(FeedStatus.Ok, r.repo.state.value.feedStates.first { it.id == "a" }.status)
+    }
+
+    @Test fun aPassCancelledMidWayLeavesTheFeedsDueEvenInsideTheMinimumGap() = runTest {
+        val r = rig(this, listOf(FEED_A, FEED_B), delayMs = 10_000) { _, _ -> ok(xml("Story")) }
+        val job = launch { r.repo.refresh() }
+        advanceTimeBy(5_000) // both fetches are in flight
+        assertEquals(2, r.fetcher.urls.size)
+        job.cancel()
+        runCurrent()
+        r.clock.advance(10_000) // the app resumes 10 s later: far inside the 60 s gap
+        val again = launch { r.repo.refresh() }
+        advanceTimeBy(11_000)
+        again.join()
+        assertEquals("a cancelled attempt does not count as an attempt", 4, r.fetcher.urls.size)
+        assertEquals(2, r.repo.state.value.feedStates.count { it.status == FeedStatus.Ok })
+    }
+
+    @Test fun aCancelledPassKeepsTheForcedRequestForTheNextRun() = runTest {
+        val r = rig(this, delayMs = 10_000) { _, _ -> ok(xml("Story")) }
+        val first = launch { r.repo.refresh() }
+        advanceTimeBy(11_000)
+        first.join()
+        r.clock.advance(5_000) // inside the 60 s gap: a plain request would do nothing
+        val job = launch { r.repo.refresh(force = true) }
+        advanceTimeBy(1_000)
+        assertEquals(2, r.fetcher.urls.size)
+        job.cancel()
+        runCurrent()
+        val next = launch { r.repo.refresh() } // the pending forced request rides along
+        advanceTimeBy(11_000)
+        next.join()
+        assertEquals(3, r.fetcher.urls.size)
     }
 
     @Test fun nonForcedPassesRespectTheMinimumGap() = runTest {
@@ -476,14 +535,15 @@ class NewsRepositoryTest {
 
     @Test fun headlinesMentioningTheWatchlistAreTaggedAndRetaggedWhenItChanges() = runTest {
         val r = rig(this, watch = WatchlistStore.DEFAULTS) { _, _ ->
-            ok(xml("Microsoft unveils new AI features", "TSX edges higher on energy", "Why XEQT keeps growing", "iShares adds new funds"))
+            ok(xml("Microsoft unveils new AI features", "TSX edges higher on energy", "Why XEQT keeps growing", "iShares Core Equity ETF draws inflows", "iShares adds new funds"))
         }
         r.repo.refresh()
         val tags = r.repo.state.value.items.associate { it.title to it.tags }
         assertEquals(listOf("MSFT"), tags["Microsoft unveils new AI features"])
         assertEquals(emptyList<String>(), tags["TSX edges higher on energy"])
         assertEquals(listOf("XEQT"), tags["Why XEQT keeps growing"])
-        assertEquals(listOf("XEQT"), tags["iShares adds new funds"])
+        assertEquals(listOf("XEQT"), tags["iShares Core Equity ETF draws inflows"])
+        assertEquals("a fund family name alone is not our fund", emptyList<String>(), tags["iShares adds new funds"])
 
         r.watch.value = listOf(WatchItem("SHOP.TO", "Shopify Inc.", "CAD", "TSX"))
         r.repo.onConfigChanged()
@@ -541,5 +601,89 @@ class NewsRepositoryTest {
         val h = r.repo.state.value.items.single()
         assertTrue(h.summary.length <= 280)
         assertFalse(h.summary.contains('<') || h.summary.contains("script"))
+    }
+
+    // ---- clocks and status ---------------------------------------------------------------------------------------------
+
+    @Test fun aCacheWrittenByAClockAheadOfTheDeviceIsStaleWithAnUnknownAge() = runTest {
+        val r = rig(this) { _, _ -> ok(xml("Cached story")) }
+        r.repo.refresh()
+        // The unit boots with a wrong clock: three days behind what the cache entry says.
+        val behind = FakeClock(now = NOW_MS - 3 * 86_400_000L)
+        val second = NewsRepository(r.feeds, r.watch, DelayFetcher(0) { _, _ -> error("offline") }, FileJsonCache(File(r.dir, "cache"), behind), behind, NewsConfig(), r.io)
+        second.hydrate()
+        val s = second.state.value
+        assertEquals(1, s.items.size)
+        val o = s.overall
+        assertTrue("$o", o is NewsOverall.Stale && !o.ageKnown)
+        assertNull("never 'Updated just now'", s.lastOkAgeMs)
+    }
+
+    @Test fun aFailedPassNeverMakesCachedHeadlinesFresh() = runTest {
+        val r = rig(this) { _, _ -> ok(xml("Cached story")) }
+        r.repo.refresh()
+        val failing = r.again(DelayFetcher(0) { _, _ -> HttpResponse(500, "") })
+        failing.hydrate()
+        r.clock.advance(5 * 60_000L) // only five minutes old, well inside the fresh window
+        assertTrue(failing.state.value.overall is NewsOverall.Stale)
+        failing.refresh(force = true)
+        val o = failing.state.value.overall
+        assertTrue("a failed pass is not a confirmation: $o", o is NewsOverall.Stale)
+        assertTrue(failing.state.value.lastPassFailed)
+    }
+
+    @Test fun theClockOffsetIsTheMedianAcrossFeedsSoOneBadServerCannotMoveIt() = runTest {
+        val r = rig(this, listOf(FEED_A, FEED_B, feed("c"))) { url, _ ->
+            val date = if (url.contains("/c.xml")) NOW_MS + 3 * 86_400_000L else NOW_MS
+            ok(xml("Story ${url.substringAfterLast('/')}"), date = date)
+        }
+        r.repo.refresh()
+        assertEquals(0L, r.repo.state.value.serverOffsetMs)
+        assertEquals(3, r.repo.state.value.items.size)
+        assertTrue(r.repo.state.value.items.none { it.dateEstimated })
+    }
+
+    @Test fun aCachedResponseDateIsCorrectedByItsAgeHeader() = runTest {
+        // The CDN built this response 10 minutes ago and says so: the device clock is right.
+        val r = rig(this) { _, _ -> HttpResponse(200, xml("Story"), mapOf("date" to rfc(NOW_MS - 600_000L), "age" to "600")) }
+        r.repo.refresh()
+        assertEquals(0L, r.repo.state.value.serverOffsetMs)
+        val r2 = rig(this) { _, _ -> ok(xml("Story"), date = NOW_MS - 600_000L) }
+        r2.repo.refresh()
+        assertEquals("without the Age header the same Date is a real 10 minute skew", -600_000L, r2.repo.state.value.serverOffsetMs)
+    }
+
+    @Test fun smallSkewUnderFiveMinutesIsIgnored() = runTest {
+        val r = rig(this) { _, _ -> ok(xml("One"), date = NOW_MS + 4 * 60_000L) }
+        r.repo.refresh()
+        assertEquals(0L, r.repo.state.value.serverOffsetMs)
+    }
+
+    // ---- backoff by kind, banner cause ------------------------------------------------------------------------------------
+
+    @Test fun timeoutsAndNetworkErrorsNeverBackOffBeyondOnePollPeriod() = runTest {
+        val r = rig(this) { _, _ -> HttpResponse(0, failure = FetchResult.Err(ErrorKind.Timeout, "t")) }
+        repeat(8) {
+            r.repo.refresh(force = true)
+            r.clock.advance(1_000)
+        }
+        assertEquals(10 * 60_000L, r.repo.state.value.feedStates.single().retryInMs)
+        val h = rig(this) { _, _ -> HttpResponse(500, "") }
+        repeat(8) { h.repo.refresh(force = true); h.clock.advance(1_000) }
+        assertEquals("server errors still grow to 30 min", 30 * 60_000L, h.repo.state.value.feedStates.single().retryInMs)
+    }
+
+    @Test fun theStateCarriesTheKindOfFailureMostFeedsShare() = runTest {
+        val r = rig(this, listOf(FEED_A, FEED_B, feed("c"))) { url, _ ->
+            if (url.contains("/c.xml")) HttpResponse(500, "") else HttpResponse(0, failure = FetchResult.Err(ErrorKind.Timeout, "t"))
+        }
+        r.repo.refresh()
+        assertEquals(ErrorKind.Timeout, r.repo.state.value.errorKind)
+        assertEquals(ErrorKind.ClockOrTls, dominantKind(listOf(ErrorKind.ClockOrTls, ErrorKind.Network)))
+        assertEquals(ErrorKind.Network, dominantKind(listOf(ErrorKind.Network, ErrorKind.Network, ErrorKind.Parse)))
+        assertNull(dominantKind(emptyList()))
+        val fine = rig(this) { _, _ -> ok(xml("Fine")) }
+        fine.repo.refresh()
+        assertNull(fine.repo.state.value.errorKind)
     }
 }

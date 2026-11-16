@@ -99,6 +99,26 @@ class NewsMapperTest {
         assertEquals("Headlines may be out of date", u.banner)
     }
 
+    @Test fun theBannerTellsTheTruthAboutTheCause() {
+        fun banner(k: ErrorKind) = map(fresh.copy(lastPassFailed = true, errorKind = k)).banner
+        assertEquals("Can't reach the news sources", banner(ErrorKind.Network))
+        assertEquals("The news source is slow to answer", banner(ErrorKind.Timeout))
+        assertEquals("The news source is busy, retrying later", banner(ErrorKind.RateLimited(1000)))
+        assertEquals("Check the date and time", banner(ErrorKind.ClockOrTls))
+        assertEquals("The news source sent something unreadable", banner(ErrorKind.Parse))
+        assertEquals("The news source has a problem (503)", banner(ErrorKind.Http(503)))
+        val stale = map(fresh.copy(overall = NewsOverall.Stale(40 * 60_000L), lastOkAgeMs = 40 * 60_000L, errorKind = ErrorKind.ClockOrTls, lastPassFailed = true))
+        assertEquals("Check the date and time", stale.banner)
+        assertEquals("a pass that failed for another reason is not blamed on the network", "The news source is slow to answer", map(NewsState(overall = NewsOverall.Error(ErrorKind.Timeout), lastPassFailed = true)).banner)
+    }
+
+    @Test fun anUnknownAgeIsNotUpToDateNeverJustNow() {
+        val u = map(fresh.copy(overall = NewsOverall.Stale(0, ageKnown = false), lastOkAgeMs = null))
+        assertEquals("Not up to date", u.statusLine)
+        assertTrue(u.stale)
+        assertEquals("Headlines may be out of date", u.banner)
+    }
+
     @Test fun aFailedPassWithItemsHeldSaysWhyEvenWhileStillFresh() {
         val u = map(fresh.copy(lastPassFailed = true))
         assertEquals("Can't reach the news sources", u.banner)

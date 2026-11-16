@@ -10,11 +10,11 @@ sealed interface RowStatus {
 
     data object Fresh : RowStatus
 
-    /** The last good quote is old. [ageText] is "5 min ago" (blank when the age cannot be trusted). */
-    data class Stale(val ageText: String) : RowStatus
+    /** The last good quote is old. [ageText] is "5 min ago" (blank when the age cannot be trusted); [ageMs] is the same age as a number for code that must not parse the text (null when unknown). */
+    data class Stale(val ageText: String, val ageMs: Long? = null) : RowStatus
 
     /** The latest refresh failed. Numbers (if any) are the last good ones, shown dimmed. [ageText] as for [Stale]. */
-    data class Error(val reason: String, val ageText: String = "") : RowStatus
+    data class Error(val reason: String, val ageText: String = "", val ageMs: Long? = null) : RowStatus
 }
 
 /**

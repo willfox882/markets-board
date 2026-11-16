@@ -50,6 +50,11 @@ class PlainTextTest {
         assertEquals("a b", PlainText.clean("a\u0000\u0007b"))
     }
 
+    @Test fun bidirectionalControlsAreRemoved() {
+        val marks = listOf(0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069).joinToString("") { Char(it).toString() }
+        assertEquals("abc", PlainText.clean("a" + marks + "b" + marks + "c"))
+    }
+
     @Test fun dashesAreNeverEmDashes() {
         val r = PlainText.clean("Stocks fall${Char(0x2014)}analysts – cautious ${Char(0x2014)} again 2020–2021")
         assertFalse(r.contains(Char(0x2014)))

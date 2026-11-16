@@ -96,7 +96,7 @@ class SandboxNewsEnvTest {
     }
 
     @Test fun theLastOpenedLinkIsRecordedForThePanel() = env { e ->
-        e.openUrl("https://example.com/a")
+        e.openUrl("https://example.com/a") // true or false depending on whether this machine has a browser; headless: false
         assertEquals("https://example.com/a", e.lastOpenedUrl.value)
     }
 }

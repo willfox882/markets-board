@@ -27,10 +27,8 @@ object NewsMapper {
         val overall = s.overall
         val stale = overall is NewsOverall.Stale
         val failedAll = s.lastPassFailed || overall is NewsOverall.Error
-        val reason = when {
-            overall is NewsOverall.Error -> NewsText.feedError(overall.kind)
-            else -> NewsText.feedError(ErrorKind.Network)
-        }
+        // Say what is really wrong: offline, busy servers, a wrong clock, unreadable feeds.
+        val reason = NewsText.feedError((overall as? NewsOverall.Error)?.kind ?: s.errorKind ?: ErrorKind.Network)
         val banner = when {
             overall is NewsOverall.Error -> reason
             failedAll && all.isNotEmpty() -> reason
@@ -43,7 +41,13 @@ object NewsMapper {
             rows.isEmpty() -> NewsPhase.Empty
             else -> NewsPhase.Ready
         }
-        val status = s.lastOkAgeMs?.let { NewsText.updated(it) } ?: if (phase == NewsPhase.Loading) "Loading headlines" else ""
+        val ageUnknown = overall is NewsOverall.Stale && !overall.ageKnown
+        val status = when {
+            ageUnknown -> "Not up to date"
+            s.lastOkAgeMs != null -> NewsText.updated(s.lastOkAgeMs)
+            phase == NewsPhase.Loading -> "Loading headlines"
+            else -> ""
+        }
         val (emptyTitle, emptyHint) = when {
             phase != NewsPhase.Empty -> "" to ""
             filter == NewsFilter.MySymbols && all.isNotEmpty() -> "No news on your symbols" to "Switch to All to see every headline."

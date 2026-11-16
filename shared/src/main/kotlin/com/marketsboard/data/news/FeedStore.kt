@@ -49,6 +49,7 @@ object DefaultFeeds {
     val ALL: List<FeedConfig> = listOf(
         FeedConfig("cbc-business", "CBC Business", "https://www.cbc.ca/webfeed/rss/rss-business"),
         FeedConfig("globe-business", "The Globe and Mail", "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/business/"),
+        FeedConfig("financial-post", "Financial Post", "https://financialpost.com/feed"),
         FeedConfig("yahoo-top", "Yahoo Finance", "https://finance.yahoo.com/news/rssindex"),
         FeedConfig("marketwatch-top", "MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
     )
@@ -97,7 +98,8 @@ class FeedStore(private val file: File, private val clock: Clock = Clock.System)
     }
 
     fun add(name: String, url: String, kind: FeedKind = FeedKind.General, symbol: String? = null): FeedEdit = edit {
-        val cleanUrl = FeedParser.safeUrl(url) ?: return@edit FeedEdit.Invalid("Use a full http or https address")
+        val cleanUrl = FeedParser.safeFeedUrl(url)
+            ?: return@edit FeedEdit.Invalid(if (FeedParser.safeUrl(url) != null) "Feeds must use an https address" else "Use a full https address")
         val cur = _feeds.value
         val key = Dedupe.canonicalUrl(cleanUrl)
         cur.firstOrNull { Dedupe.canonicalUrl(it.url) == key }?.let { return@edit FeedEdit.Duplicate(it) }
@@ -201,7 +203,7 @@ class FeedStore(private val file: File, private val clock: Clock = Clock.System)
         var dropped = 0
         for (e in arr) {
             val o = e.asObj()
-            val url = FeedParser.safeUrl(o?.str("url"))
+            val url = FeedParser.safeFeedUrl(o?.str("url")) // a stored http address (never written by this app) is dropped, not fetched in clear
             val id = o?.str("id")?.take(60)
             val name = cleanName(o?.str("name").orEmpty())
             if (o == null || url == null || id == null || name.isEmpty() || list.any { it.id == id }) { dropped++; continue }

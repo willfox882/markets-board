@@ -16,10 +16,10 @@ val LocalBackHook = staticCompositionLocalOf<@Composable (enabled: Boolean, onBa
 }
 
 /**
- * Platform hook that opens an http(s) link in the system browser. Android supplies an ACTION_VIEW intent (in try/catch),
+ * Platform hook that opens an http(s) link in the system browser and says whether it could (false: no browser, bad link). Android supplies an ACTION_VIEW intent (in try/catch),
  * the sandbox uses java.awt.Desktop; the default does nothing. The screens never call it in Glance mode.
  */
-val LocalOpenUrl = staticCompositionLocalOf<(String) -> Unit> { { } }
+val LocalOpenUrl = staticCompositionLocalOf<(String) -> Boolean> { { false } }
 
 /**
  * Lays everything out as if the screen were [designWidthDp] wide, whatever the real pixel density is.

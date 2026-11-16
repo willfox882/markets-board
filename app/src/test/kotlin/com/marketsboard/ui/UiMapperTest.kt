@@ -59,10 +59,10 @@ class UiMapperTest {
 
     @Test fun staleRowShowsTheAge() {
         val r = UiMapper.row(xeqt, stale(q(), 5 * 60_000 + 10_000))
-        assertEquals(RowStatus.Stale("5 min ago"), r.status)
+        assertEquals(RowStatus.Stale("5 min ago", 5 * 60_000 + 10_000L), r.status)
         assertEquals(42.0, r.price!!, 0.0)
-        assertEquals(RowStatus.Stale("2 h ago"), UiMapper.row(xeqt, stale(q(), 2 * 3_600_000L + 5)).status)
-        assertEquals(RowStatus.Stale("3 d ago"), UiMapper.row(xeqt, stale(q(), 3 * 86_400_000L)).status)
+        assertEquals(RowStatus.Stale("2 h ago", 2 * 3_600_000L + 5), UiMapper.row(xeqt, stale(q(), 2 * 3_600_000L + 5)).status)
+        assertEquals(RowStatus.Stale("3 d ago", 3 * 86_400_000L), UiMapper.row(xeqt, stale(q(), 3 * 86_400_000L)).status)
     }
 
     @Test fun unknownAgeHasNoAgeText() {
@@ -71,7 +71,7 @@ class UiMapperTest {
 
     @Test fun failedRefreshKeepsLastNumbersAndDimsThem() {
         val r = UiMapper.row(xeqt, failed(q(), ErrorKind.Network, 9 * 60_000))
-        assertEquals(RowStatus.Error("Can't reach the data service", "9 min ago"), r.status)
+        assertEquals(RowStatus.Error("Can't reach the data service", "9 min ago", 9 * 60_000L), r.status)
         assertEquals(42.0, r.price!!, 0.0)
         assertTrue(r.dimmed)
     }

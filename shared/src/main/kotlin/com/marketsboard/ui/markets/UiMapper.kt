@@ -62,12 +62,14 @@ object UiMapper {
                 is QuoteStatus.Error -> RowStatus.Error(ErrorText.reason(s.kind, cooldownMs))
                 else -> RowStatus.Loading
             }
-            err != null -> RowStatus.Error(ErrorText.reason(err.kind, cooldownMs), ageTextOf(state.status))
-            state.status is QuoteStatus.Stale -> RowStatus.Stale(ageTextOf(state.status))
+            err != null -> RowStatus.Error(ErrorText.reason(err.kind, cooldownMs), ageTextOf(state.status), ageMsOf(state.status))
+            state.status is QuoteStatus.Stale -> RowStatus.Stale(ageTextOf(state.status), ageMsOf(state.status))
             state.status is QuoteStatus.Loading -> RowStatus.Loading
             else -> RowStatus.Fresh
         }
     }
+
+    fun ageMsOf(status: QuoteStatus): Long? = if (status is QuoteStatus.Stale && status.ageKnown) status.ageMs else null
 
     /** "5 min ago"; blank when the age is unknown (cache written by a wrong clock) or the status carries none. */
     fun ageTextOf(status: QuoteStatus): String =

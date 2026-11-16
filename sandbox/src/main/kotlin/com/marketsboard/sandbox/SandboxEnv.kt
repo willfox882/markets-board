@@ -105,16 +105,20 @@ class SandboxEnv(
     /** The last link the article screen asked to open (nothing is really opened unless the desktop allows it). */
     val lastOpenedUrl = MutableStateFlow("")
 
-    fun openUrl(url: String) {
+    /** Records the link and, when this machine has a browser, opens it. False when it could not (the panel still shows the link). */
+    fun openUrl(url: String): Boolean {
         lastOpenedUrl.value = url
-        try {
+        return try {
             if (!java.awt.GraphicsEnvironment.isHeadless() && java.awt.Desktop.isDesktopSupported() &&
                 java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)
             ) {
                 java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+                true
+            } else {
+                false
             }
         } catch (e: Throwable) {
-            // No browser here: the panel still shows the link.
+            false
         }
     }
 

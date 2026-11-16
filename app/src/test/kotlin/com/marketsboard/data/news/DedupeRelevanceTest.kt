@@ -10,7 +10,7 @@ import org.junit.Test
 
 class DedupeTest {
     private fun h(title: String, url: String, pub: Long = NOW_MS, summary: String = "", tags: List<String> = emptyList(), src: String = "S") =
-        Headline(Dedupe.idFor(url), title, summary, url, src, pub, tags)
+        Headline(Dedupe.idFor(url), title, summary, url, src, pub, tags, feedId = src)
 
     private fun merge(vararg hs: Headline) = Dedupe.merge(hs.mapIndexed { i, x -> Dedupe.Entry(x, i) })
 
@@ -79,6 +79,46 @@ class DedupeTest {
         assertEquals("A", r[0].sourceName)
     }
 
+    @Test fun oppositeMovesAreDifferentStories() {
+        val a = h("TSX futures rise as oil prices gain", "https://a.com/1", src = "A")
+        val b = h("TSX futures fall as oil prices gain", "https://b.com/2", src = "B")
+        assertEquals(2, merge(a, b).size)
+        val c = h("Bank shares slump after earnings miss today", "https://a.com/3", src = "A")
+        val d = h("Bank shares surge after earnings miss today", "https://b.com/4", src = "B")
+        assertEquals(2, merge(c, d).size)
+        val same = h("TSX futures rise as oil prices gain", "https://c.com/5", src = "C")
+        assertEquals("the same direction still merges", 1, merge(a, same).size)
+        assertTrue(Dedupe.opposite(setOf("stocks", "rise"), setOf("stocks", "fall")))
+        assertFalse(Dedupe.opposite(setOf("stocks", "rise"), setOf("stocks", "gain")))
+    }
+
+    @Test fun theSameTitleOnADifferentDayIsADifferentStory() {
+        val a = h("Weekly market wrap: stocks end lower", "https://a.com/mon", NOW_MS, src = "A")
+        val b = h("Weekly market wrap: stocks end lower", "https://b.com/tue", NOW_MS - 2 * 86_400_000L, src = "B")
+        assertEquals(2, merge(a, b).size)
+        val close = h("Weekly market wrap: stocks end lower", "https://b.com/tue2", NOW_MS - 3_600_000L, src = "B")
+        assertEquals("within the window it merges", 1, merge(a, close).size)
+        val far = h("Weekly market wrap: stocks end lower", "https://b.com/tue3", NOW_MS - 13 * 3_600_000L, src = "B")
+        assertEquals("13 hours apart is outside the 12 hour window", 2, merge(a, far).size)
+    }
+
+    @Test fun titleRulesNeverJoinTwoItemsOfTheSameFeed() {
+        val a = h("Alpha bravo charlie delta echo foxtrot", "https://a.com/1", NOW_MS - 10, src = "A")
+        val b = h("Alpha bravo charlie delta echo foxtrot golf", "https://a.com/2", NOW_MS - 20, src = "A")
+        assertEquals(2, merge(a, b).size)
+        val same = h("Alpha bravo charlie delta echo foxtrot", "https://a.com/3", NOW_MS, src = "A")
+        assertEquals(2, merge(a, same).size)
+        // the same page is still the same page, whatever the feed
+        assertEquals(1, merge(a, a.copy(id = "x")).size)
+    }
+
+    @Test fun cidSrcAndSourceAreRealParametersButModAndTsrcAreTracking() {
+        assertNotEquals(Dedupe.canonicalUrl("https://e.com/a?cid=1"), Dedupe.canonicalUrl("https://e.com/a?cid=2"))
+        assertNotEquals(Dedupe.canonicalUrl("https://e.com/a?src=x"), Dedupe.canonicalUrl("https://e.com/a?src=y"))
+        assertNotEquals(Dedupe.canonicalUrl("https://e.com/a?source=x"), Dedupe.canonicalUrl("https://e.com/a?source=y"))
+        assertEquals(Dedupe.canonicalUrl("https://e.com/a"), Dedupe.canonicalUrl("https://e.com/a?mod=mw_rss&tsrc=rss&ref=x"))
+    }
+
     @Test fun wireCopyWithTheSameSummaryAndRelatedTitlesIsMerged() {
         val text = "The central bank left its policy rate unchanged on Wednesday and said inflation is moving back toward its target."
         val a = h("Bank of Canada holds rate steady as inflation cools, governor says", "https://a.com/1", NOW_MS - 10, summary = text, src = "A")
@@ -109,8 +149,8 @@ class DedupeTest {
     }
 
     @Test fun tagsOfTheGroupAreMergedIntoTheKeptItem() {
-        val a = h("Shared story about Microsoft and ETFs today", "https://a.com/1", NOW_MS - 1000, tags = listOf("MSFT"))
-        val b = h("Shared story about Microsoft and ETFs today", "https://b.com/2", NOW_MS, tags = listOf("XEQT", "MSFT"))
+        val a = h("Shared story about Microsoft and ETFs today", "https://a.com/1", NOW_MS - 1000, tags = listOf("MSFT"), src = "A")
+        val b = h("Shared story about Microsoft and ETFs today", "https://b.com/2", NOW_MS, tags = listOf("XEQT", "MSFT"), src = "B")
         val r = merge(a, b).single()
         assertEquals(listOf("MSFT", "XEQT"), r.tags)
     }
@@ -138,9 +178,11 @@ class RelevanceTest {
         assertEquals(listOf("MSFT"), defaults.match("Microsoft unveils new AI features"))
         assertEquals(listOf("MSFT"), defaults.match("Shares of MSFT fell 2% on Tuesday"))
         assertEquals(listOf("XEQT"), defaults.match("Why XEQT is so popular"))
-        assertEquals(listOf("XEQT"), defaults.match("iShares adds new low-cost funds"))
+        assertTrue("a fund family name alone is not XEQT", defaults.match("iShares adds new low-cost funds").isEmpty())
+        assertEquals(listOf("XEQT"), defaults.match("iShares Core Equity fund draws record inflows"))
         assertEquals(listOf("XEQT"), defaults.match("The (TSX:XEQT) fund"))
-        assertEquals(listOf("XEQT", "MSFT"), defaults.match("iShares and Microsoft both rose"))
+        assertEquals(listOf("MSFT"), defaults.match("iShares and Microsoft both rose"))
+        assertEquals(listOf("XEQT", "MSFT"), defaults.match("XEQT and Microsoft both rose"))
     }
 
     @Test fun matchingIsWordBoundedAndTickersAreCaseSensitive() {
