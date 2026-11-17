@@ -6,11 +6,13 @@ import com.marketsboard.data.model.ChartRange
 import com.marketsboard.data.repo.QuotesSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -72,6 +74,7 @@ class RefreshConfig(
  * Timing uses the injected monotonic clock for decisions and coroutine `delay` for waiting. A coroutine `delay` does
  * not run while the device is in deep sleep; that is covered by the resume rule above.
  */
+@OptIn(FlowPreview::class)
 class RefreshController(
     private val scope: CoroutineScope,
     private val quotes: QuotesSource,
@@ -87,8 +90,8 @@ class RefreshController(
     private val lock = Any()
     @Volatile private var latest: List<String> = emptyList()
 
-    /** The platform reported "no network" since the last pass that followed a return: on return every symbol is retried. */
-    @Volatile private var offlineSeen = false
+    /** Whether the network went away since the last pass that followed its return: on return every symbol is retried. */
+    private val outage = OutageTracker(network)
 
     private var wasActive = false
     private var pausedWall: Long? = null
@@ -98,7 +101,6 @@ class RefreshController(
         scope.launch {
             symbols.collect { latest = it }
         }
-        scope.launch { network.status.collect { if (it == NetworkStatus.Offline) offlineSeen = true } }
         scope.launch {
             combine(isActive, symbols.map { it.toSet() }.distinctUntilChanged()) { a, s ->
                 noteTransition(a)
@@ -110,6 +112,8 @@ class RefreshController(
                     val syms = ordered(set)
                     safely { onResume() }
                     safely { quotes.recomputeAges() }
+                    // Back on screen after the network went away and returned meanwhile: everything is due, as for a return signal.
+                    if (network.status.value != NetworkStatus.Offline && outage.consume()) synchronized(lock) { lastDone.clear() }
                     pass(syms, immediate = true)
                     while (true) {
                         pause(config.tickMs)
@@ -128,7 +132,10 @@ class RefreshController(
         }
         scope.launch {
             isActive.collectLatest { active ->
-                if (active) network.available.collectLatest { pause(config.networkSettleMs); networkPass() }
+                if (active) {
+                    // Wait for the burst of signals to end, then answer it with one pass; a running pass is never cancelled by a later signal.
+                    network.available.debounce((config.networkSettleMs / config.timeScale().coerceAtLeast(0.001)).toLong().coerceAtLeast(1)).collect { networkPass() }
+                }
             }
         }
     }
@@ -174,10 +181,9 @@ class RefreshController(
     /** Network came back: retry what is broken, now, whatever the minimum gap says. */
     private suspend fun networkPass() {
         if (network.status.value == NetworkStatus.Offline) return
-        if (quotes.cooldownRemainingMs() > 0) return
+        if (quotes.cooldownRemainingMs() > 0) return // a rate limit or server trouble is honoured even right after a return
         val states = quotes.states.value
-        val wasOffline = offlineSeen
-        offlineSeen = false
+        val wasOffline = outage.consume()
         val broken = if (wasOffline) latest else latest.filter { s ->
             val st = states[com.marketsboard.data.repo.QuoteRepository.keyFor(s, ChartRange.D1)]
             st == null || st.quote == null || st.lastError != null || st.status !is com.marketsboard.data.repo.QuoteStatus.Fresh
@@ -190,7 +196,7 @@ class RefreshController(
     private suspend fun pass(syms: List<String>, immediate: Boolean) {
         safely { quotes.hydrate(syms, ChartRange.D1) }
         // No network at all: no automatic fetches (no timeouts, no spinners). The next network signal retries at once.
-        if (network.status.value == NetworkStatus.Offline) return
+        if (network.status.value == NetworkStatus.Offline) { outage.skippedWhileOffline(); return }
         if (quotes.cooldownRemainingMs() > 0) return
         val now = clock.monoMs()
         val wall = clock.nowMs()

@@ -5,6 +5,7 @@
 - `README.md`: human overview.
 - `settings.gradle.kts`, `build.gradle.kts`, `gradle.properties`, `gradle/libs.versions.toml`: Gradle setup and version catalog.
 - `local.properties`: sdk.dir (gitignored). `.gitignore`: build outputs, local.properties, *.apk.
+- `app/debug.keystore`: the fixed, committed debug signing key (standard alias and passwords) so every build can update any other.
 - `.github/workflows/build.yml`: CI (tests, assembleDebug, lintDebug, sandboxJar, screenshots; artifacts `release-<sha>` (versioned debug-signed APK, sandbox jar, SHA256SUMS), app-debug, sandbox, screenshots, lint).
 - `docs/INSTALL.md`: sideloading, hotspot, permissions, split screen and the in-truck checklist.
 - `docs/PLAYBOOK.md`: orchestrator brief and milestone plan (do not edit). `docs/PROGRESS.md`: state and decisions. `docs/SANDBOX.md`: desktop simulator. `docs/licenses/OFL-Geist.txt`: font licence.
@@ -35,7 +36,7 @@
 - `.../refresh/ActiveGate.kt`: foreground gate (`isActive`, `resume`, `pause`, `launchWhileActive`); gates the quote controller and the news poller.
 - `.../refresh/NewsPoller.kt`: news polling policy (hydrate cache, pass on resume, every 10 min while active, network-back retries failed feeds, config change retags and fetches, ages tick, debounced forced manual refresh) + `NewsRefresher`, `NewsPollConfig`.
 - `.../refresh/NetworkSignal.kt`: `NetworkSignal` (`available` flow and `status` StateFlow) and `NetworkStatus` (Unknown, Online, Offline); Android implements it.
-- `.../refresh/Connectivity.kt`: `ConnectivityRules` (pure "offline" decision from the platform status and the data layer's failures) and `Connectivity` (the one `offline` StateFlow).
+- `.../refresh/Connectivity.kt`: `ConnectivityRules` (pure: `quotesDown`, `newsDown` per feed, `marketsOffline`, `offline`; Network errors only) and `Connectivity` (`offline` for News and Settings, `marketsOffline` for Markets). `NetworkSignal.kt` also holds `OutageTracker` (outages counted by the platform signal, never missed).
 - `.../ui/OfflineView.kt`: pure rule of how Markets and News look while offline (one banner text, calm rows, no spinner).
 - `.../ui/tools/ToolsUi.kt`: Settings sub-page models (`ToolsPage`, `FeedsUiState`, `FeedRowUi`, `FeedAddUi`, `DiagnosticsUiState`, `ToolsUiState`) and `FeedsActions` / `ToolsActions` (not driving-gated).
 - `.../ui/tools/FeedsPresenter.kt`: the feed editor over `FeedStore` (serial write queue, add validation, dialogs, read-only note). `ToolsPresenter.kt`: page navigation, back order, diagnostics gated to its page. `FeedsScreen.kt` (list, add sheet, dialogs, shared `PageHeader`), `DiagnosticsScreen.kt`.

@@ -35,6 +35,15 @@ class FakeNetwork : com.marketsboard.refresh.NetworkSignal {
     override val available: kotlinx.coroutines.flow.Flow<Unit> = flow
     val statusFlow = kotlinx.coroutines.flow.MutableStateFlow(com.marketsboard.refresh.NetworkStatus.Unknown)
     override val status: kotlinx.coroutines.flow.StateFlow<com.marketsboard.refresh.NetworkStatus> = statusFlow
+    var outages = 0L
+    override val outageCount: Long get() = outages
+
+    /** Sets the platform status; going Offline counts an outage like the Android signal does. */
+    fun set(s: com.marketsboard.refresh.NetworkStatus) {
+        if (s == com.marketsboard.refresh.NetworkStatus.Offline && statusFlow.value != s) outages++
+        statusFlow.value = s
+    }
+
     fun back() { flow.tryEmit(Unit) }
 }
 

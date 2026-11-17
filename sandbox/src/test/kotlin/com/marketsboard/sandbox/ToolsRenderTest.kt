@@ -36,7 +36,7 @@ class ToolsRenderTest {
     private val F = ScreenshotFixtures
     private val T = ToolsFixtures
     private val parked = DrivingStatus(UiMode.Normal, DrivingReason.Parked, 0.0)
-    private val settings = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.6.0", "debug 1"))
+    private val settings = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = ScreenshotFixtures.ABOUT)
 
     private fun pixels(w: Int, h: Int, content: @Composable () -> Unit): IntArray {
         val scene = ImageComposeScene(width = w, height = h, density = Density(1f)) { MarketsBoardTheme { content() } }

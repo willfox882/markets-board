@@ -50,7 +50,7 @@ class PaneRenderTest {
     private val speaking = BriefingUiState(BriefingPhase.Speaking, caption = "X E Q T, 41 dollars 25 cents, down 4.6 percent. And a much longer second half of the sentence so it wraps.", label = "XEQT", index = 3, total = 9)
     private val preparing = BriefingUiState(BriefingPhase.Preparing)
     private val text = BriefingUiState(BriefingPhase.Text, message = "Speech is not available on this unit. Here is the briefing as text.", lines = List(8) { "Line number $it of the written briefing, long enough to wrap onto a second line on a narrow screen." })
-    private val about = AboutInfo("0.1.0", "debug 1")
+    private val about = ScreenshotFixtures.ABOUT
 
     private class Case(
         val name: String, val markets: MarketsUiState, val tab: MbTab = MbTab.Markets, val news: NewsUiState = NewsUiState(),

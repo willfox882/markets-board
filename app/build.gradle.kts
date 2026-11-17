@@ -14,8 +14,19 @@ android {
         applicationId = "com.marketsboard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.6.1"
+        versionCode = 8
+        versionName = "0.6.2"
+    }
+
+    // A FIXED debug key committed to the repo (standard alias and passwords, it protects nothing): every local and CI build is signed
+    // with the same certificate, so an APK from any build can be installed over an earlier one and keeps the app's data.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

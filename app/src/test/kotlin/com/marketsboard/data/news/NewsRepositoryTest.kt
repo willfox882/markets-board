@@ -476,13 +476,16 @@ class NewsRepositoryTest {
         assertEquals(before + 1, r.fetcher.urls.size)
     }
 
-    @Test fun onlyFailedRetriesJustTheFailingFeedsEvenInsideTheGap() = runTest {
+    @Test fun onlyFailedRetriesJustTheFailingFeedsEvenInsideTheGapButNotInsideTheirBackoff() = runTest {
         var failA = true
         val r = rig(this, listOf(FEED_A, FEED_B)) { url, _ -> if (url.contains("/a.xml") && failA) HttpResponse(500, "") else ok(xml("S ${url.length}")) }
         r.repo.refresh()
         assertEquals(2, r.fetcher.urls.size)
         failA = false
         r.clock.advance(10_000)
+        r.repo.refresh(onlyFailed = true)
+        assertEquals("a server error backs the feed off: a signal does not override it", 2, r.fetcher.urls.size)
+        r.clock.advance(51_000) // the one minute backoff is over, still far inside the 5 minute stale limit
         r.repo.refresh(onlyFailed = true)
         assertEquals(3, r.fetcher.urls.size)
         assertTrue(r.fetcher.urls.last().contains("/a.xml"))

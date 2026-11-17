@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 class FeedsPresenter(
     private val scope: CoroutineScope,
     private val store: FeedStore,
-    watch: StateFlow<List<WatchItem>>,
+    private val watch: StateFlow<List<WatchItem>>,
     io: CoroutineDispatcher = Dispatchers.IO,
 ) : FeedsActions {
     private data class Nav(
@@ -38,6 +38,8 @@ class FeedsPresenter(
         val rename: FeedRenameUi? = null,
         val confirmRemove: FeedRemoveUi? = null,
         val confirmReset: Boolean = false,
+        /** Changes with every opened Add sheet: a result that belongs to an earlier sheet never touches a newer one. */
+        val addNonce: Long = 0,
     )
 
     private val nav = MutableStateFlow(Nav())
@@ -103,12 +105,16 @@ class FeedsPresenter(
         nav.update { it.copy(rename = FeedRenameUi(id, f.name, f.name)) }
     }
 
-    override fun onRenameChange(text: String) = nav.update { n -> n.copy(rename = n.rename?.copy(current = text.take(FeedStore.MAX_NAME_LENGTH + 20))) }
+    override fun onRenameChange(text: String) = nav.update { n -> n.copy(rename = n.rename?.copy(current = text.take(FeedStore.MAX_NAME_LENGTH + 20), message = "")) }
 
     override fun onRenameConfirm() {
         val r = nav.value.rename ?: return
+        if (FeedStore.cleanName(r.current).isEmpty()) {
+            nav.update { it.copy(rename = r.copy(message = "A name cannot be empty")) }
+            return
+        }
         nav.update { it.copy(rename = null) }
-        if (FeedStore.cleanName(r.current).isNotEmpty()) enqueue { store.rename(r.id, r.current) }
+        enqueue { store.rename(r.id, r.current) }
     }
 
     override fun onRenameCancel() = nav.update { it.copy(rename = null) }
@@ -126,20 +132,29 @@ class FeedsPresenter(
 
     override fun onCancelRemove() = nav.update { it.copy(confirmRemove = null) }
 
-    override fun onAddOpen() = nav.update { it.copy(add = FeedAddUi()) }
+    override fun onAddOpen() = nav.update { it.copy(add = FeedAddUi(), addNonce = it.addNonce + 1) }
 
     override fun onAddNameChange(text: String) = nav.update { n -> n.copy(add = n.add?.copy(name = text.take(FeedStore.MAX_NAME_LENGTH + 20), message = "")) }
 
-    override fun onAddUrlChange(text: String) = nav.update { n -> n.copy(add = n.add?.copy(url = text.take(500), message = "")) }
+    override fun onAddUrlChange(text: String) = nav.update { n -> n.copy(add = n.add?.copy(url = text.take(MAX_TYPED_URL), message = "")) }
 
     override fun onAddConfirm() {
         val a = nav.value.add ?: return
+        if (a.busy) return // a second tap while the first is being written does nothing
         if (a.url.isBlank()) { nav.update { it.copy(add = a.copy(message = "Type the feed address first")) }; return }
+        val nonce = nav.value.addNonce
+        nav.update { it.copy(add = a.copy(busy = true, message = "")) }
         enqueue {
-            val result = store.add(a.name, withScheme(a.url))
-            when (result) {
-                is FeedEdit.Done -> nav.update { it.copy(add = null) }
-                else -> nav.update { n -> n.copy(add = n.add?.copy(message = addMessage(result))) }
+            val reserved = if (store.symbolFeeds.value) FeedPlan.autoFeeds(watch.value) else emptyList()
+            val result = store.add(a.name, withScheme(a.url), reserved = reserved)
+            // The sheet this Add came from may be gone (Cancel, then a new sheet): only the sheet with the same nonce is touched.
+            nav.update { n ->
+                val cur = n.add
+                when {
+                    cur == null || n.addNonce != nonce -> n
+                    result is FeedEdit.Done -> n.copy(add = null)
+                    else -> n.copy(add = cur.copy(busy = false, message = addMessage(result)))
+                }
             }
         }
     }
@@ -158,6 +173,9 @@ class FeedsPresenter(
     override fun onCancelReset() = nav.update { it.copy(confirmReset = false) }
 
     companion object {
+        /** What the address field keeps; longer text is refused in words by the store (never cut silently). */
+        const val MAX_TYPED_URL = 2_000
+
         /** "example.com/feed" is taken as https. An explicit http address stays http so the store can refuse it in words. */
         fun withScheme(raw: String): String {
             val t = raw.trim()
@@ -166,7 +184,7 @@ class FeedsPresenter(
 
         fun addMessage(e: FeedEdit): String = when (e) {
             is FeedEdit.Invalid -> e.reason
-            is FeedEdit.Duplicate -> "Already in your list as ${e.existing.name}"
+            is FeedEdit.Duplicate -> if (e.existing.auto) "Already covered by Feeds for my symbols (${e.existing.symbol ?: "watchlist"})" else "Already in your list as ${e.existing.name}"
             FeedEdit.LimitReached -> "The list is full (${FeedStore.MAX_FEEDS} feeds). Remove one first"
             FeedEdit.ReadOnly -> "These feeds were saved by a newer version of the app and cannot be changed here"
             FeedEdit.NotFound -> "That feed no longer exists"

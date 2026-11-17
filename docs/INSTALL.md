@@ -6,14 +6,14 @@ Markets Board is a normal Android app (package `com.marketsboard`, Android 8.0 o
 
 Every push builds them in GitHub Actions (workflow `build`). Open the run, then Artifacts:
 
-- `release-<commit>`: `markets-board-0.6.1-debug.apk`, `markets-board-sandbox-0.6.1.jar` and `SHA256SUMS.txt`.
+- `release-<commit>`: `markets-board-0.6.2-debug.apk`, `markets-board-sandbox-0.6.2.jar` and `SHA256SUMS.txt`.
 - `screenshots`: PNGs of every screen at full, half and strip size.
 
 Or build it yourself: `./gradlew assembleDebug`, the APK is `app/build/outputs/apk/debug/app-debug.apk`.
 
-**About signing.** There is no release keystore. The APK is signed with the standard Android debug key, which is fine for sideloading onto your own unit. Consequences: you can update by installing the next APK over it (same key, higher version), but only from a machine whose debug key is the same one. If you build on a different computer, Android refuses the update with "signatures do not match"; uninstall first (your watchlist and feed list are then lost, they live inside the app).
+**About signing.** There is no release keystore. Every build (your own and CI) is signed with ONE fixed debug key that is committed in the repo (`app/debug.keystore`, the standard `androiddebugkey` with password `android`; it protects nothing, it only keeps the signature the same). So from version 0.6.2 on you can install any newer APK over the old one, from any machine, and the watchlist, feeds and settings stay. One-time exception: if you installed an earlier build made by CI (0.6.1 or older), it was signed with a random key that no longer exists; Android then refuses the update with "signatures do not match", so uninstall it once first (the watchlist and feed list live inside the app and are lost, re-adding them takes a minute). A build made on your own computer before this change has your own machine's debug key and needs the same one-time uninstall.
 
-Check the download against `SHA256SUMS.txt` if you like: `sha256sum markets-board-0.6.1-debug.apk`.
+Check the download against `SHA256SUMS.txt` if you like: `sha256sum markets-board-0.6.2-debug.apk`.
 
 ## 2. Install
 
@@ -21,7 +21,7 @@ Check the download against `SHA256SUMS.txt` if you like: `sha256sum markets-boar
 1. On the unit open Settings, About, and tap "Build number" seven times to enable Developer options. In Developer options switch on USB debugging.
 2. Connect the computer to the unit's USB port that supports data (on some units it is the one behind the glovebox or the one marked for service).
 3. `adb devices` must list the unit; accept the prompt on the screen.
-4. `adb install -r markets-board-0.6.1-debug.apk`  (`-r` keeps your data when updating).
+4. `adb install -r markets-board-0.6.2-debug.apk`  (`-r` keeps your data when updating).
 5. Start it from the launcher, or `adb shell am start -n com.marketsboard/.MainActivity`.
 
 Over Wi-Fi instead of USB (same network, after one USB connection): `adb tcpip 5555`, then `adb connect <unit address>:5555`.
@@ -40,7 +40,7 @@ Markets Board needs a connection for prices and headlines. Use your phone's hots
 
 1. iPhone: Settings, Personal Hotspot, Allow Others to Join. Keep "Maximise Compatibility" on if the unit is slow to find it. Android phone: Settings, Network, Hotspot.
 2. On the unit open Wi-Fi settings and join the phone. Tick "auto connect" so it comes back by itself.
-3. Data use is small: about 25 feeds and quotes every one to ten minutes while the app is on screen, roughly 10 to 20 MB an hour (a rough estimate, not measured). Nothing runs when the app is not on screen.
+3. Data use is small: the five default news feeds plus up to six per-symbol feeds (one for each watchlist symbol) every ten minutes (every minute only while one is failing, and a failing feed waits out its own backoff), and quotes about once a minute while a market is open. A rough estimate is 10 to 20 MB an hour, not measured. All of it runs only while the app is on screen: when you leave it nothing is fetched, except that a briefing already speaking keeps going until it ends or you stop it. The GPS (only if the Driving lock is on) is read only while the app is on screen too.
 
 When the hotspot drops, the app keeps showing the last data under one amber line, "Offline, showing last data", and stops retrying until the network is back. When it returns the app refreshes by itself within a few seconds. You do not need to press anything.
 
@@ -55,7 +55,7 @@ When the hotspot drops, the app keeps showing the last data under one amber line
 
 The app accepts any pane size: full screen, a top or bottom half, or a short strip. Open the app in a pane with the unit's own split-screen control (the ROM decides how; usually long-press or drag from the recent-apps view). Layouts shrink by themselves: below about 620 dp of height the header gets compact, below about 330 dp it becomes a strip with one or two rows.
 
-Two things to know: the app reads the speed whenever it is visible, so a half pane is enough to keep the driving lock working (when it is switched on); and a text field (adding a symbol or a feed) needs room for the keyboard, so make the pane bigger before typing.
+Two things to know: the app reads the speed whenever it is visible, so a half pane is enough to keep the driving lock working (when it is switched on); and a text field (adding a symbol or a feed) opens the keyboard: the add screens scroll and move above it, but the keyboard can take most of a short strip, so a bigger pane is easier for typing.
 
 ## 6. Settings you will want
 
@@ -74,7 +74,7 @@ None of this could be tested without the unit; please tick it off once and tell 
 5. **Date and time**: if the unit boots with a wrong clock, "Check the date and time" should show, and Diagnostics, Connection, "Device clock" should say how far off it is.
 6. **Speed lock**: with the default (lock off) the screen must stay fully usable at any speed and no location prompt appears. Then switch on Settings, Driving, "Driving lock" and allow location. Drive above 5 km/h: the screen should change to names, prices and the top headline, Settings dead, a big "Brief me". At a stop it should unlock after 10 seconds. A red light must not unlock it.
 7. **Speech**: press "Brief me" parked. Listen for how "X E Q T", "U S" and the prices sound, the volume against the radio, and that the radio ducks and comes back. Try the media play key if you enabled it.
-8. **Split screen**: put the app in the top half and in the bottom half, then in a strip. Nothing should be cut off or overlap the tab bar; the keyboard must not hide the field when you add a feed.
+8. **Split screen**: put the app in the top half and in the bottom half, then in a strip. Nothing should be cut off or overlap the tab bar; when you add a feed the sheet must scroll and the focused field and the Add button must stay reachable above the keyboard (even in a short strip, where you may have to scroll).
 9. **Feeds**: open Settings, News feeds, add a real https feed, watch it in News after a minute. Then Diagnostics shows it as "Working".
 10. **Rotation and sleep**: rotate or sleep the unit and wake it. The app should come back with the last data and refresh within a minute.
 

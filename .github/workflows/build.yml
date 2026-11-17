@@ -16,6 +16,7 @@ jobs:
       - name: Name the release files (debug-signed APK, no release keystore) and checksum them
         run: |
           VERSION=$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | cut -d'"' -f2)
+          if [ -z "$VERSION" ]; then echo "versionName not found in app/build.gradle.kts" >&2; exit 1; fi
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk "dist/markets-board-${VERSION}-debug.apk"
           cp sandbox/build/libs/markets-board-sandbox.jar "dist/markets-board-sandbox-${VERSION}.jar"

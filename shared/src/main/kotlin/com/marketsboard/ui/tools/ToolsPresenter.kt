@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -19,14 +21,31 @@ class ToolsPresenter(
     scope: CoroutineScope,
     private val feeds: FeedsPresenter,
     private val diagnostics: DiagnosticsPresenter,
+    /** False while the app is in the background: the diagnostics stop re-mapping and ticking. */
+    active: StateFlow<Boolean> = MutableStateFlow(true),
 ) : ToolsActions, FeedsActions by feeds {
     private val page = MutableStateFlow(ToolsPage.Main)
 
+    /** The Settings tab is on screen (the root reports it). */
+    private val visible = MutableStateFlow(false)
+
+    /**
+     * The diagnostics flow runs only while its page is open, the Settings tab is on screen and the app is active. Off the page the
+     * state is empty; while merely hidden the last state is kept (nothing is emitted, nothing ticks).
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val diag = page.flatMapLatest { if (it == ToolsPage.Diagnostics) diagnostics.flow() else flowOf(DiagnosticsUiState()) }
+    private val diag = combine(page, visible, active) { p, v, a -> Triple(p, v, a) }.distinctUntilChanged().flatMapLatest { (p, v, a) ->
+        when {
+            p != ToolsPage.Diagnostics -> flowOf(DiagnosticsUiState())
+            v && a -> diagnostics.flow()
+            else -> emptyFlow()
+        }
+    }
 
     val state: StateFlow<ToolsUiState> = combine(page, feeds.state, diag) { p, f, d -> ToolsUiState(p, f, d) }
         .stateIn(scope, SharingStarted.Eagerly, ToolsUiState())
+
+    override fun onSettingsVisible(visible: Boolean) { this.visible.value = visible }
 
     override fun onOpenFeeds() { page.value = ToolsPage.Feeds }
 

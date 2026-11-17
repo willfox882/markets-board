@@ -109,6 +109,7 @@ class AppRuntime(
             ),
             clock,
         ),
+        gate.isActive,
     )
 
     /** "Brief me": allowed in both modes. Also the [com.marketsboard.briefing.BriefingTrigger] for the media key (and a future steering wheel hook). */

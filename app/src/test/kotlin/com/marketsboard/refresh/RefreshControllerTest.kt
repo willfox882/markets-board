@@ -390,12 +390,12 @@ class RefreshControllerTest {
 
     @Test fun noAutomaticPassWhileTheNetworkIsOfflineThenTheReturnRefreshesStaleQuotes() = runTest {
         val r = Rig(this)
-        r.network.statusFlow.value = NetworkStatus.Offline
+        r.network.set(NetworkStatus.Offline)
         runCurrent()
         tick(10 * 60_000L)
         assertEquals("no fetch attempts without a network", 0, r.quotes.calls.size)
         r.quotes.put("A", QuoteState(com.marketsboard.data.quoteOf("A"), QuoteStatus.Stale(5 * 60_000L), 0L, null, false, 0L))
-        r.network.statusFlow.value = NetworkStatus.Online
+        r.network.set(NetworkStatus.Online)
         r.network.back()
         tick(900)
         assertEquals(0, r.quotes.calls.size)
@@ -473,5 +473,39 @@ class RefreshControllerTest {
         r.controller.refresh("A"); r.controller.refresh("A"); r.controller.refresh("B")
         runCurrent()
         assertEquals(5, r.quotes.calls.size)
+    }
+
+    @Test fun aSecondSignalWhileAPassRunsNeverCancelsIt() = runTest {
+        val r = Rig(this)
+        r.quotes.onRefresh = { s, _ -> r.open(s) }
+        runCurrent()
+        tick(10_000)
+        val before = r.quotes.calls.size
+        r.quotes.put("B", QuoteState(null, QuoteStatus.Error(ErrorKind.Network), null, FetchResult.Err(ErrorKind.Network, "x")))
+        r.quotes.refreshDelayMs = 5_000
+        r.network.back()
+        tick(1_100) // the pass starts
+        assertEquals(before + 1, r.quotes.calls.size)
+        r.network.back() // another signal while it runs
+        tick(1_200)
+        tick(10_000)
+        assertEquals("the running pass finished and the later signal found nothing left to do", before + 1, r.quotes.calls.size)
+        assertEquals(com.marketsboard.data.repo.QuoteStatus.Fresh, r.quotes.stateOf("B")?.status)
+    }
+
+    @Test fun comingBackOnScreenAfterAnOutageThatEndedMeanwhileRefreshesEverythingAtOnce() = runTest {
+        val r = Rig(this)
+        r.quotes.onRefresh = { s, _ -> r.open(s) }
+        runCurrent()
+        val before = r.quotes.calls.size
+        r.active.value = false
+        runCurrent()
+        r.network.set(NetworkStatus.Offline)
+        r.network.set(NetworkStatus.Online) // no signal reaches the paused app
+        tick(20_000)
+        r.active.value = true
+        runCurrent()
+        assertEquals(before + 1, r.quotes.calls.size)
+        assertEquals(listOf("A", "B"), r.quotes.calls.last().symbols)
     }
 }

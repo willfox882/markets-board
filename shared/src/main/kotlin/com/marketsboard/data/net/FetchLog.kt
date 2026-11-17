@@ -44,17 +44,18 @@ class LoggingHttpFetcher(
 ) : HttpFetcher {
     override suspend fun get(url: String, headers: Map<String, String>): HttpResponse {
         val start = clock.nowMs()
+        val startMono = clock.monoMs() // latency on the monotonic clock: a clock that jumps cannot make it negative or huge
         try {
             val r = delegate.get(url, headers)
             val err = r.toError()
             log.record(
-                FetchEvent(start, provider, hostOf(url), err == null, r.code, (clock.nowMs() - start).coerceAtLeast(0), err?.let { describe(it) }),
+                FetchEvent(start, provider, hostOf(url), err == null, r.code, (clock.monoMs() - startMono).coerceAtLeast(0), err?.let { describe(it) }),
             )
             return r
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            log.record(FetchEvent(start, provider, hostOf(url), false, 0, (clock.nowMs() - start).coerceAtLeast(0), "exception ${e.javaClass.simpleName}"))
+            log.record(FetchEvent(start, provider, hostOf(url), false, 0, (clock.monoMs() - startMono).coerceAtLeast(0), "exception ${e.javaClass.simpleName}"))
             return HttpResponse(0, failure = FetchResult.Err(ErrorKind.Unknown, e.message ?: e.javaClass.simpleName))
         }
     }

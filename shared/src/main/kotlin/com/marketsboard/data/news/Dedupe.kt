@@ -47,11 +47,14 @@ object Dedupe {
         }
         val host = (u.host ?: return url.trim().lowercase(Locale.ROOT)).lowercase(Locale.ROOT).removePrefix("www.").removePrefix("m.")
         val path = (u.rawPath ?: "").let { if (it.length > 1) it.trimEnd('/') else "" }.lowercase(Locale.ROOT)
-        val query = (u.rawQuery ?: "").split('&').filter { it.isNotEmpty() }.filter { part ->
-            val k = decode(part.substringBefore('=')).lowercase(Locale.ROOT)
-            !(k.startsWith("utm_") || k.startsWith("at_") || k.startsWith("pk_") || k.startsWith("mkt_") || k in TRACKING_EXACT)
-        }.sorted().joinToString("&")
+        val query = queryParts(u.rawQuery).sorted().joinToString("&")
         return if (query.isEmpty()) "$host$path" else "$host$path?$query"
+    }
+
+    /** The query parameters that identify the page (tracking parameters such as `utm_source` removed), in their original order and case. */
+    fun queryParts(rawQuery: String?): List<String> = (rawQuery ?: "").split('&').filter { it.isNotEmpty() }.filter { part ->
+        val k = decode(part.substringBefore('=')).lowercase(Locale.ROOT)
+        !(k.startsWith("utm_") || k.startsWith("at_") || k.startsWith("pk_") || k.startsWith("mkt_") || k in TRACKING_EXACT)
     }
 
     private fun decode(s: String) = try { URLDecoder.decode(s, "UTF-8") } catch (e: Exception) { s }

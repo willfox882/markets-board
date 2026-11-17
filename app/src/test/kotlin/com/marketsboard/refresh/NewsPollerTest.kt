@@ -109,19 +109,75 @@ class NewsPollerTest {
         assertEquals(0, second.calls)
     }
 
-    @Test fun networkReturningRetriesFailedFeedsAtOnceIgnoringBackoff() = runTest {
+    @Test fun aNetworkSignalRetriesFailedFeedsAtOnceButHonoursTheirBackoff() = runTest {
         var up = false
-        val r = rig(listOf(feed("a"), feed("b"))) { url -> if (url.contains("/a.xml") && !up) HttpResponse(500, "") else page("Item ${url.length}", base = 1_699_999_000_000L) }
+        var dead = true
+        val r = rig(listOf(feed("a"), feed("b"), feed("c"))) { url ->
+            when {
+                url.contains("/a.xml") && !up -> HttpResponse(503, "")
+                url.contains("/c.xml") && dead -> HttpResponse(0, failure = com.marketsboard.data.model.FetchResult.Err(com.marketsboard.data.model.ErrorKind.Network, "x"), offline = true)
+                else -> page("Item ${url.length}", base = 1_699_999_000_000L)
+            }
+        }
+        r.gate.value = true
+        runCurrent()
+        assertEquals(3, r.calls)
+        advanceTimeBy(10_000)
+        up = true; dead = false
+        r.net.back()
+        advanceTimeBy(1_100)
+        runCurrent()
+        // a 503 backs the feed off for a minute: the signal does not override it; the network failure has no backoff and is retried
+        assertEquals(4, r.calls)
+        assertTrue(r.fetcher.urls.last().contains("/c.xml"))
+    }
+
+    @Test fun returnAfterAnOutageIsNotForcedARateLimitedFeedKeepsItsBackoff() = runTest {
+        var limited = true
+        val r = rig(listOf(feed("a"), feed("b"))) { url ->
+            if (url.contains("/a.xml") && limited) HttpResponse(429, "", retryAfterMs = 600_000L) else page("Item ${url.length}", base = 1_699_999_000_000L)
+        }
         r.gate.value = true
         runCurrent()
         assertEquals(2, r.calls)
-        advanceTimeBy(10_000)
-        up = true
+        r.net.set(NetworkStatus.Offline)
+        advanceTimeBy(5 * 60_000L)
+        limited = false
+        r.net.set(NetworkStatus.Online)
         r.net.back()
-        advanceTimeBy(1_000) // bursts of signals are collapsed: the pass runs one settle time after the last one
+        advanceTimeBy(1_100)
         runCurrent()
-        assertEquals("only the failed feed is retried", 3, r.calls)
-        assertTrue(r.fetcher.urls.last().contains("/a.xml"))
+        val urls = r.fetcher.urls.drop(2)
+        assertTrue("b is due again after the outage: $urls", urls.any { it.contains("/b.xml") })
+        assertTrue("a is still inside its 10 minute Retry-After: $urls", urls.none { it.contains("/a.xml") })
+    }
+
+    @Test fun comingBackOnScreenAfterAnOutageThatEndedMeanwhileRunsTheReturnPassAtOnce() = runTest {
+        val r = rig(listOf(feed("a")))
+        r.gate.value = true
+        runCurrent()
+        assertEquals(1, r.calls)
+        r.gate.value = false
+        runCurrent()
+        r.net.set(NetworkStatus.Offline) // the hotspot drops and returns while the app is in the background; no signal reaches it
+        r.net.set(NetworkStatus.Online)
+        advanceTimeBy(5 * 60_000L)
+        r.gate.value = true
+        runCurrent()
+        assertEquals("the resume answers the outage at once", 2, r.calls)
+    }
+
+    @Test fun whileAFeedIsFailingThePollRunsEveryMinuteNotEveryTenToRecoverByItself() = runTest {
+        var up = false
+        val r = rig(listOf(feed("a"))) { _ -> if (up) page("Back", base = 1_699_999_000_000L) else HttpResponse(0, failure = com.marketsboard.data.model.FetchResult.Err(com.marketsboard.data.model.ErrorKind.Network, "x"), offline = true) }
+        r.gate.value = true
+        runCurrent()
+        assertEquals(1, r.calls)
+        up = true
+        advanceTimeBy(61_000)
+        runCurrent()
+        assertEquals("recovered within about a minute without any network signal", 2, r.calls)
+        assertEquals(NewsOverall.Fresh, r.repo.state.value.overall)
     }
 
     @Test fun manualRefreshIsForcedAndDebounced() = runTest {
@@ -181,13 +237,13 @@ class NewsPollerTest {
 
     @Test fun noAutomaticPassWhileOfflineAndTheReturnFetchesEverythingOnce() = runTest {
         val r = rig(listOf(feed("a"), feed("b")))
-        r.net.statusFlow.value = NetworkStatus.Offline
+        r.net.set(NetworkStatus.Offline)
         r.gate.value = true
         runCurrent()
         advanceTimeBy(35 * 60_000L)
         runCurrent()
         assertEquals("no timeouts, no spinner storms while there is no network", 0, r.calls)
-        r.net.statusFlow.value = NetworkStatus.Online
+        r.net.set(NetworkStatus.Online)
         r.net.back()
         advanceTimeBy(900)
         runCurrent()
@@ -203,16 +259,33 @@ class NewsPollerTest {
         runCurrent()
         assertEquals(1, r.calls)
         advanceTimeBy(70_000)
-        r.net.statusFlow.value = NetworkStatus.Online
+        r.net.set(NetworkStatus.Online)
         repeat(4) { r.net.back(); advanceTimeBy(200); runCurrent() }
         advanceTimeBy(1_500)
         runCurrent()
         assertTrue("calls=${r.calls}", r.calls <= 2)
     }
 
+    @Test fun afterAnOutageAFeedThatJustFailedIsRetriedAtOnceNotAfterTheFiveSecondGuard() = runTest {
+        var up = false
+        val r = rig(listOf(feed("a"))) { _ -> if (up) page("Back", base = 1_699_999_000_000L) else HttpResponse(0, failure = com.marketsboard.data.model.FetchResult.Err(com.marketsboard.data.model.ErrorKind.Network, "x"), offline = true) }
+        r.gate.value = true
+        runCurrent()
+        assertEquals(1, r.calls)
+        r.net.set(NetworkStatus.Offline)
+        advanceTimeBy(1_000)
+        up = true
+        r.net.set(NetworkStatus.Online)
+        r.net.back()
+        advanceTimeBy(1_100)
+        runCurrent()
+        assertEquals("retried 2 s after its failure", 2, r.calls)
+        assertEquals(NewsOverall.Fresh, r.repo.state.value.overall)
+    }
+
     @Test fun aSignalWhileStillOfflineDoesNothing() = runTest {
         val r = rig()
-        r.net.statusFlow.value = NetworkStatus.Offline
+        r.net.set(NetworkStatus.Offline)
         r.gate.value = true
         runCurrent()
         r.net.back()

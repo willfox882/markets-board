@@ -70,6 +70,8 @@ data class FeedState(
     val validator: String = "None",
     /** The last failure's wording, kept after a later success (the diagnostics screen shows history); [lastError] is cleared by a success. */
     val lastErrorSeen: String? = null,
+    /** The kind of the CURRENT failure (null while the feed is fine); the offline rule counts only [com.marketsboard.data.model.ErrorKind.Network]. */
+    val errorKind: ErrorKind? = null,
 )
 
 sealed interface NewsOverall {

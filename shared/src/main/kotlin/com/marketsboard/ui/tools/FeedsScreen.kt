@@ -9,7 +9,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -78,7 +82,7 @@ fun FeedsScreen(state: FeedsUiState, actions: ToolsActions, modifier: Modifier =
                 value = r.current, onValueChange = actions::onRenameChange, singleLine = true, colors = dashFieldColors(),
                 modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
             )
-            Text("Shown above its headlines.", color = Dash.dim, fontSize = 13.sp)
+            if (r.message.isNotEmpty()) Text(r.message, color = Dash.amber, fontSize = 13.sp) else Text("Shown above its headlines.", color = Dash.dim, fontSize = 13.sp)
         }
     }
 }
@@ -121,7 +125,7 @@ private fun FeedList(state: FeedsUiState, actions: ToolsActions) {
             Hairline()
         }
         items(state.rows, key = { it.id }) { row ->
-            FeedRow(row, actions)
+            FeedRow(row, actions, locked = state.readOnly)
             Hairline()
         }
         if (state.rows.isEmpty()) {
@@ -130,7 +134,7 @@ private fun FeedList(state: FeedsUiState, actions: ToolsActions) {
         }
         item {
             SwitchRow(
-                "Feeds for my symbols", state.symbolFeeds, actions::onSymbolFeeds,
+                "Feeds for my symbols", state.symbolFeeds, { if (!state.readOnly) actions.onSymbolFeeds(it) },
                 subtitle = if (state.symbolFeeds) "One Yahoo Finance feed per watchlist symbol (${state.symbolFeedCount} now)" else "Off: only the sources above are used",
             )
             Hairline()
@@ -149,7 +153,7 @@ private fun FeedList(state: FeedsUiState, actions: ToolsActions) {
 }
 
 @Composable
-private fun FeedRow(r: FeedRowUi, actions: ToolsActions) {
+private fun FeedRow(r: FeedRowUi, actions: ToolsActions, locked: Boolean) {
     val pane = LocalPaneSpec.current
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -168,9 +172,9 @@ private fun FeedRow(r: FeedRowUi, actions: ToolsActions) {
                 }
                 if (sub.isNotEmpty()) Text(sub, color = Dash.dim, fontSize = pane.pick(13, 12).sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             }
-            Switch(checked = r.enabled, onCheckedChange = { actions.onToggle(r.id, it) }, colors = dashSwitchColors())
+            Switch(checked = r.enabled, onCheckedChange = { actions.onToggle(r.id, it) }, enabled = !locked, colors = dashSwitchColors())
         }
-        if (r.selected) {
+        if (r.selected && !locked) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 ArrowButton(up = true, enabled = r.canMoveUp, onClick = { actions.onMove(r.id, -1) }, description = "Move ${r.name} up")
                 ArrowButton(up = false, enabled = r.canMoveDown, onClick = { actions.onMove(r.id, 1) }, description = "Move ${r.name} down")
@@ -186,11 +190,12 @@ private fun FeedRow(r: FeedRowUi, actions: ToolsActions) {
 private fun AddFeedSheet(a: FeedAddUi, actions: ToolsActions, modifier: Modifier = Modifier) {
     val pane = LocalPaneSpec.current
     val gap = pane.pick(14, 8).dp
-    Column(modifier.padding(horizontal = pane.pick(20, 16).dp)) {
+    // Scrolls, and sits above the keyboard, so in a small pane the focused field and the Add button stay reachable.
+    Column(modifier.imePadding().verticalScroll(rememberScrollState()).padding(horizontal = pane.pick(20, 16).dp)) {
         Row(Modifier.fillMaxWidth().padding(top = pane.pick(14, 4).dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(84.dp)) { TextAction("Cancel", actions::onAddCancel, Modifier.padding(start = 0.dp), color = Dash.dim) }
             Text("Add feed", color = Dash.text, fontSize = 18.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-            Box(Modifier.width(84.dp), contentAlignment = Alignment.CenterEnd) { TextAction("Add", actions::onAddConfirm, color = Dash.text) }
+            Box(Modifier.width(84.dp), contentAlignment = Alignment.CenterEnd) { TextAction("Add", actions::onAddConfirm, color = if (a.busy) Dash.faint else Dash.text) }
         }
         OutlinedTextField(
             value = a.url, onValueChange = actions::onAddUrlChange, singleLine = true, colors = dashFieldColors(),
@@ -214,6 +219,6 @@ private fun AddFeedSheet(a: FeedAddUi, actions: ToolsActions, modifier: Modifier
             "Only https addresses are accepted. RSS and Atom feeds work.", color = Dash.dim, fontSize = 13.sp, lineHeight = 18.sp,
             maxLines = pane.pick(3, 2, 1), overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp),
         )
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -83,6 +84,8 @@ fun MarketsBoardRoot(
     toolsActions: ToolsActions = ToolsActions.None,
     /** No network (or every host unreachable): one amber line, last data, no error bands (see [OfflineView]). */
     offline: Boolean = false,
+    /** Markets only: no network, or every symbol failing. Defaults to [offline] (a news-only failure must not dim the prices). */
+    marketsOffline: Boolean = offline,
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     val glance = mode == UiMode.Glance
@@ -90,6 +93,10 @@ fun MarketsBoardRoot(
     // Entering Glance: drop the focus and hide the on-screen keyboard (a text field must not stay armed while the truck moves).
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    // The diagnostics page only runs while the Settings tab is on screen.
+    val settingsShown = shown == MbTab.Settings
+    LaunchedEffect(settingsShown) { toolsActions.onSettingsVisible(settingsShown) }
+    DisposableEffect(Unit) { onDispose { toolsActions.onSettingsVisible(false) } }
     LaunchedEffect(glance) { if (glance) { focus.clearFocus(force = true); keyboard?.hide() } }
     DesignScale {
         val pane = LocalPaneSpec.current
@@ -98,7 +105,7 @@ fun MarketsBoardRoot(
             val fullScreen = !glance && ((shown == MbTab.Markets && (markets.detail != null || markets.add != null)) || (shown == MbTab.News && news.detail != null) ||
                 (shown == MbTab.Settings && tools.page == ToolsPage.Feeds && tools.feeds.add != null))
             if (!fullScreen || briefing.visible) TopStrip(glance, driving, briefing, briefingActions, pane)
-            if (offline && !glance && !fullScreen) OfflineLine(pane)
+            if (!glance && !fullScreen && (if (shown == MbTab.Markets) marketsOffline else offline)) OfflineLine(pane)
             AnimatedVisibility(
                 visible = !glance && briefing.visible,
                 enter = fadeIn(tween(200)) + expandVertically(tween(200)),
@@ -109,7 +116,7 @@ fun MarketsBoardRoot(
                 val m = if (glance) UiMode.Glance else UiMode.Normal
                 when (shown) {
                     MbTab.Markets -> MarketsScreen(
-                        (if (markets.mode == m) markets else markets.copy(mode = m)).let { if (offline && !glance) OfflineView.markets(it) else it },
+                        (if (markets.mode == m) markets else markets.copy(mode = m)).let { if (marketsOffline && !glance) OfflineView.markets(it) else it },
                         actions = actions, gpsUnknown = !glance && driving.unknown,
                     )
                     MbTab.News -> NewsScreen((if (news.mode == m) news else news.copy(mode = m)).let { if (offline && !glance) OfflineView.news(it) else it }, actions = newsActions)

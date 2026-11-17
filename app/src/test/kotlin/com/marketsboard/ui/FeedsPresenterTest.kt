@@ -239,14 +239,14 @@ class FeedsPresenterTest {
 
     // ---- navigation (ToolsPresenter) -------------------------------------------------------------------------------------
 
-    private fun TestScope.tools(r: Rig): ToolsPresenter {
+    private fun TestScope.tools(r: Rig, active: MutableStateFlow<Boolean> = MutableStateFlow(true)): ToolsPresenter {
         val sources = DiagnosticsSources(
             news = MutableStateFlow(com.marketsboard.data.news.NewsState()), feeds = r.store.feeds,
             quotes = com.marketsboard.FakeQuotesSource(r.clock), watch = r.watch, fetches = MutableStateFlow(emptyList()),
             signal = MutableStateFlow(com.marketsboard.refresh.NetworkStatus.Unknown), offline = MutableStateFlow(false),
             driving = MutableStateFlow(com.marketsboard.core.DrivingStatus()), locationGranted = MutableStateFlow(true),
         )
-        return ToolsPresenter(backgroundScope, r.feeds, DiagnosticsPresenter(sources, r.clock, tick = kotlinx.coroutines.flow.emptyFlow()))
+        return ToolsPresenter(backgroundScope, r.feeds, DiagnosticsPresenter(sources, r.clock, tick = kotlinx.coroutines.flow.emptyFlow()), active)
     }
 
     @Test fun backClosesTheSheetThenTheDialogThenThePage() = runTest {
@@ -278,6 +278,7 @@ class FeedsPresenterTest {
         runCurrent()
         assertTrue(t.state.value.diagnostics.sections.isEmpty())
         t.onOpenDiagnostics()
+        t.onSettingsVisible(true)
         runCurrent()
         assertEquals(ToolsPage.Diagnostics, t.state.value.page)
         assertEquals(listOf("Connection", "Prices", "Watchlist cache", "News feeds", "Speed source"), t.state.value.diagnostics.sections.map { it.title })
@@ -297,5 +298,172 @@ class FeedsPresenterTest {
         runCurrent()
         assertFalse(t.state.value.feeds.rows[0].enabled)
         assertFalse(t.state.value.feeds.symbolFeeds)
+    }
+
+    // ---- audit fixes ---------------------------------------------------------------------------------------------------
+
+    @Test fun diagnosticsStopRunningWhenTheSettingsTabIsLeftOrTheAppIsInactiveAndResumeOnReturn() = runTest {
+        val r = rig()
+        val active = MutableStateFlow(true)
+        var maps = 0
+        val sources = DiagnosticsSources(
+            news = MutableStateFlow(com.marketsboard.data.news.NewsState()), feeds = r.store.feeds,
+            quotes = object : com.marketsboard.data.repo.QuotesSource by com.marketsboard.FakeQuotesSource(r.clock) {
+                override fun providerHealth(): List<com.marketsboard.data.repo.ProviderHealth> { maps++; return emptyList() }
+            },
+            watch = r.watch, fetches = MutableStateFlow(emptyList()), signal = MutableStateFlow(com.marketsboard.refresh.NetworkStatus.Unknown),
+            offline = MutableStateFlow(false), driving = MutableStateFlow(com.marketsboard.core.DrivingStatus()), locationGranted = MutableStateFlow(true),
+        )
+        val t = ToolsPresenter(backgroundScope, r.feeds, DiagnosticsPresenter(sources, r.clock, tickMs = 5_000), active)
+        t.onOpenDiagnostics()
+        runCurrent()
+        assertEquals("not mapped while the Settings tab is not on screen", 0, maps)
+        t.onSettingsVisible(true)
+        runCurrent()
+        assertTrue(maps >= 1)
+        val running = maps
+        testScheduler.advanceTimeBy(20_000); runCurrent()
+        assertTrue("it ticks while visible", maps > running)
+        t.onSettingsVisible(false)
+        runCurrent()
+        val stopped = maps
+        testScheduler.advanceTimeBy(60_000); runCurrent()
+        assertEquals("no ticks once the tab is left", stopped, maps)
+        assertTrue("the last state is kept", t.state.value.diagnostics.sections.isNotEmpty())
+        t.onSettingsVisible(true)
+        active.value = false
+        runCurrent()
+        val inactive = maps
+        testScheduler.advanceTimeBy(60_000); runCurrent()
+        assertEquals("no ticks while the app is inactive", inactive, maps)
+        active.value = true
+        runCurrent()
+        assertTrue("and it runs again on return", maps > inactive)
+    }
+
+    @Test fun aFeedWithoutANameGetsItsHostWithoutWwwNeverAPathOrAQuery() = runTest {
+        val r = rig()
+        r.store.add("", "https://www.example.org/news/rss.xml?token=abc&x=1")
+        r.store.add("", "https://feeds.example.net?only=query")
+        runCurrent()
+        assertEquals("example.org", r.state.rows[5].name)
+        assertEquals("feeds.example.net", r.state.rows[6].name)
+        assertEquals("example.org", FeedStore.defaultName("https://www.example.org/a?b=c"))
+    }
+
+    @Test fun anAddResultFromAnEarlierSheetNeverClosesANewerOne() = runTest {
+        val store = FeedStore(File(tempDir(), "feeds.json"), FakeClock())
+        // the queue does not run until runCurrent: the first Add is still waiting when the owner cancels and opens a new sheet
+        val feeds = FeedsPresenter(backgroundScope, store, MutableStateFlow(WatchlistStore.DEFAULTS), kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+        feeds.onAddOpen()
+        feeds.onAddUrlChange("https://first.example.com/rss")
+        feeds.onAddConfirm()
+        feeds.onAddCancel()
+        feeds.onAddOpen()
+        feeds.onAddUrlChange("typing the second one")
+        runCurrent()
+        assertEquals("the first Add was written", 1, store.feeds.value.count { it.url == "https://first.example.com/rss" })
+        assertEquals("the new sheet is still open and untouched", "typing the second one", feeds.state.value.add?.url)
+        assertFalse(feeds.state.value.add?.busy == true)
+        // and a failing first Add does not put its message into the new sheet either
+        feeds.onAddUrlChange("http://bad.example.com/x")
+        feeds.onAddConfirm()
+        feeds.onAddCancel()
+        feeds.onAddOpen()
+        runCurrent()
+        assertEquals("", feeds.state.value.add?.message)
+    }
+
+    @Test fun aSecondTapOnAddWhileItIsBeingWrittenDoesNothing() = runTest {
+        val dir = tempDir()
+        val store = FeedStore(File(dir, "feeds.json"), FakeClock())
+        val watch = MutableStateFlow(WatchlistStore.DEFAULTS)
+        // a dispatcher that does not run until we say so: the first Add stays queued
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val feeds = FeedsPresenter(backgroundScope, store, watch, dispatcher)
+        feeds.onAddOpen()
+        feeds.onAddUrlChange("https://once.example.com/rss")
+        feeds.onAddConfirm()
+        feeds.onAddConfirm()
+        feeds.onAddConfirm()
+        assertTrue(feeds.state.value.add?.busy == true || feeds.state.value.add == null)
+        runCurrent()
+        assertEquals("added exactly once", 1, store.feeds.value.count { it.url == "https://once.example.com/rss" })
+        assertNull(feeds.state.value.add)
+    }
+
+    @Test fun aTooLongAddressIsRefusedInWordsNeverCutSilently() = runTest {
+        val r = rig()
+        val long = "https://example.com/" + "a".repeat(600)
+        r.feeds.onAddOpen()
+        r.feeds.onAddUrlChange(long)
+        assertEquals("what was typed is kept whole", long, r.state.add?.url)
+        r.feeds.onAddConfirm()
+        runCurrent()
+        assertEquals("That address is too long (500 characters at most)", r.state.add?.message)
+        assertEquals(5, r.state.rows.size)
+        // exactly 500 is fine
+        r.feeds.onAddUrlChange("https://example.com/" + "a".repeat(480))
+        r.feeds.onAddConfirm()
+        runCurrent()
+        assertNull(r.state.add)
+    }
+
+    @Test fun addressesWithAUserNameOrPasswordAreRefused() = runTest {
+        val r = rig()
+        for (u in listOf("https://user:pass@example.com/feed.xml", "https://user@example.com/feed.xml")) {
+            r.feeds.onAddOpen()
+            r.feeds.onAddUrlChange(u)
+            r.feeds.onAddConfirm()
+            runCurrent()
+            assertEquals("Addresses with a user name or password are not accepted", r.state.add?.message)
+            r.feeds.onAddCancel()
+        }
+        assertEquals(5, r.state.rows.size)
+        // a stored feed with a password in its address is dropped on load
+        val dir = tempDir()
+        File(dir, "feeds.json").writeText("""{"version":1,"symbolFeeds":true,"feeds":[{"id":"x","name":"Bad","url":"https://u:p@example.com/f.xml","enabled":true,"kind":"general"},{"id":"y","name":"Good","url":"https://example.com/f.xml","enabled":true,"kind":"general"}]}""")
+        assertEquals(listOf("y"), FeedStore(File(dir, "feeds.json"), FakeClock()).feeds.value.map { it.id })
+    }
+
+    @Test fun theDuplicateCheckKeepsThePathCaseButIgnoresHostCaseWwwAndATrailingSlash() = runTest {
+        val r = rig()
+        r.store.add("Lower", "https://example.com/Feed.xml")
+        assertTrue("a different path case is a different feed", r.store.add("Upper", "https://example.com/feed.xml") is com.marketsboard.data.news.FeedEdit.Done)
+        assertTrue(r.store.add("Again", "https://EXAMPLE.com/Feed.xml") is com.marketsboard.data.news.FeedEdit.Duplicate)
+        assertTrue(r.store.add("Again", "https://www.example.com/Feed.xml/") is com.marketsboard.data.news.FeedEdit.Duplicate)
+        assertTrue(r.store.add("Again", "https://example.com:443/Feed.xml#top") is com.marketsboard.data.news.FeedEdit.Duplicate)
+    }
+
+    @Test fun thePerSymbolYahooAddressIsADuplicateOfTheAutomaticFeed() = runTest {
+        val r = rig()
+        r.feeds.onAddOpen()
+        r.feeds.onAddUrlChange(com.marketsboard.data.news.FeedPlan.symbolFeedUrl("MSFT"))
+        r.feeds.onAddConfirm()
+        runCurrent()
+        assertEquals("Already covered by Feeds for my symbols (MSFT)", r.state.add?.message)
+        assertEquals(5, r.state.rows.size)
+        // with the switch off the automatic feeds do not exist, so the address can be added by hand
+        r.feeds.onSymbolFeeds(false)
+        runCurrent()
+        r.feeds.onAddConfirm()
+        runCurrent()
+        assertNull(r.state.add)
+        assertEquals(6, r.state.rows.size)
+    }
+
+    @Test fun anEmptyRenameKeepsTheDialogOpenWithAMessage() = runTest {
+        val r = rig()
+        r.feeds.onAskRename("cbc-business")
+        r.feeds.onRenameChange("  ")
+        r.feeds.onRenameConfirm()
+        runCurrent()
+        assertEquals("A name cannot be empty", r.state.rename?.message)
+        r.feeds.onRenameChange("CBC")
+        assertEquals("", r.state.rename?.message)
+        r.feeds.onRenameConfirm()
+        runCurrent()
+        assertNull(r.state.rename)
+        assertEquals("CBC", r.state.rows[0].name)
     }
 }

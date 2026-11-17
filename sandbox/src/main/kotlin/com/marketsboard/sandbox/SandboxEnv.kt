@@ -146,9 +146,11 @@ class SandboxEnv(
 
     /** Whether the simulated unit has a network (the control panel's "Network" switch and the hotspot drop button flip it). */
     val networkStatus = MutableStateFlow(NetworkStatus.Online)
+    private val outages = java.util.concurrent.atomic.AtomicLong(0)
     val network: NetworkSignal = object : NetworkSignal {
         override val available: Flow<Unit> = networkFlow
         override val status: StateFlow<NetworkStatus> = networkStatus
+        override val outageCount: Long get() = outages.get()
     }
 
     val controller = RefreshController(
@@ -174,6 +176,7 @@ class SandboxEnv(
             DiagnosticsSources(news.state, feedStore.feeds, quotes, watchlist.items, fetchLog.events, networkStatus, connectivity.offline, driving.status, location.granted),
             time.deviceClock,
         ),
+        gate.isActive,
     )
 
     // ---- settings and the spoken briefing (the speaker is a fake: no sound, a log and the caption) ----
@@ -220,6 +223,7 @@ class SandboxEnv(
             newsBehaviorBeforeDrop = newsFetcher.behavior
             fake.behavior = FakeBehavior.Offline
             newsFetcher.behavior = FakeNewsBehavior.Offline
+            outages.incrementAndGet()
             networkStatus.value = NetworkStatus.Offline
         } else {
             if (networkStatus.value != NetworkStatus.Offline) return

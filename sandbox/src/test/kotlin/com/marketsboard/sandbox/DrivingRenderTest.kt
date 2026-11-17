@@ -48,7 +48,7 @@ class DrivingRenderTest {
     private val speaking = BriefingUiState(BriefingPhase.Speaking, caption = "X E Q T, 41 dollars 25 cents, down 4.6 percent. And a much longer second half of the sentence so it wraps onto more lines.", index = 3, total = 9)
     private val preparing = BriefingUiState(BriefingPhase.Preparing)
     private val text = BriefingUiState(BriefingPhase.Text, message = "Speech is not available on this unit. Here is the briefing as text.", lines = List(8) { "Line number $it of the written briefing, long enough to wrap onto a second line on a narrow screen." })
-    private val about = AboutInfo("0.1.0", "debug 1")
+    private val about = ScreenshotFixtures.ABOUT
 
     private fun settings(driving: DrivingStatus, granted: Boolean = true) =
         SettingsUiState(settings = AppSettings(drivingLock = true), driving = driving, locationGranted = granted, speech = SpeakerAvailability.Available, about = about)

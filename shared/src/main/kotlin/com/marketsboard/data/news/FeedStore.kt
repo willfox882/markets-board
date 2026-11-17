@@ -2,6 +2,7 @@ package com.marketsboard.data.news
 
 import com.marketsboard.data.Clock
 import com.marketsboard.data.model.WatchItem
+import com.marketsboard.data.net.hostOf
 import com.marketsboard.data.provider.Js
 import com.marketsboard.data.provider.arr
 import com.marketsboard.data.provider.asObj
@@ -97,14 +98,22 @@ class FeedStore(private val file: File, private val clock: Clock = Clock.System)
         synchronized(lock) { load() }
     }
 
-    fun add(name: String, url: String, kind: FeedKind = FeedKind.General, symbol: String? = null): FeedEdit = edit {
+    /**
+     * Adds a feed. [reserved] are feeds that exist but are not stored (the per-symbol Yahoo feeds the watchlist derives): an
+     * address equal to one of them is reported as a duplicate of it. Refused in words: too long (over [MAX_URL_LENGTH], never cut
+     * silently), not https, with a user name or password in it, already in the list (compared with the path's case kept).
+     */
+    fun add(name: String, url: String, kind: FeedKind = FeedKind.General, symbol: String? = null, reserved: List<FeedConfig> = emptyList()): FeedEdit = edit {
+        if (url.trim().length > MAX_URL_LENGTH) return@edit FeedEdit.Invalid("That address is too long ($MAX_URL_LENGTH characters at most)")
         val cleanUrl = FeedParser.safeFeedUrl(url)
             ?: return@edit FeedEdit.Invalid(if (FeedParser.safeUrl(url) != null) "Feeds must use an https address" else "Use a full https address")
+        if (hasUserInfo(cleanUrl)) return@edit FeedEdit.Invalid("Addresses with a user name or password are not accepted")
         val cur = _feeds.value
-        val key = Dedupe.canonicalUrl(cleanUrl)
-        cur.firstOrNull { Dedupe.canonicalUrl(it.url) == key }?.let { return@edit FeedEdit.Duplicate(it) }
+        val key = feedKey(cleanUrl)
+        cur.firstOrNull { feedKey(it.url) == key }?.let { return@edit FeedEdit.Duplicate(it) }
+        reserved.firstOrNull { feedKey(it.url) == key }?.let { return@edit FeedEdit.Duplicate(it) }
         if (cur.size >= MAX_FEEDS) return@edit FeedEdit.LimitReached
-        val title = cleanName(name).ifEmpty { Dedupe.canonicalUrl(cleanUrl).substringBefore('/') }
+        val title = cleanName(name).ifEmpty { defaultName(cleanUrl) }
         val feed = FeedConfig(uniqueId(cur, "f-" + Dedupe.idFor(cleanUrl).take(8)), title, cleanUrl, true, kind, symbol?.trim()?.takeIf { it.isNotEmpty() })
         commit(cur + feed, _symbolFeeds.value)
     }
@@ -203,7 +212,7 @@ class FeedStore(private val file: File, private val clock: Clock = Clock.System)
         var dropped = 0
         for (e in arr) {
             val o = e.asObj()
-            val url = FeedParser.safeFeedUrl(o?.str("url")) // a stored http address (never written by this app) is dropped, not fetched in clear
+            val url = FeedParser.safeFeedUrl(o?.str("url"))?.takeIf { !hasUserInfo(it) } // a stored http address (never written by this app) is dropped, not fetched in clear
             val id = o?.str("id")?.take(60)
             val name = cleanName(o?.str("name").orEmpty())
             if (o == null || url == null || id == null || name.isEmpty() || list.any { it.id == id }) { dropped++; continue }
@@ -268,9 +277,28 @@ class FeedStore(private val file: File, private val clock: Clock = Clock.System)
     companion object {
         const val VERSION = 1
         const val MAX_FEEDS = 20
+        const val MAX_URL_LENGTH = 500
         const val MAX_NAME_LENGTH = 60
         private const val MAX_NAME = MAX_NAME_LENGTH
         private val PRETTY = Json { prettyPrint = true }
+
+        fun hasUserInfo(url: String): Boolean = runCatching { java.net.URI(url).rawUserInfo != null }.getOrDefault(true)
+
+        /** The name a feed gets when the owner gives none: its host without `www.`, never a path or a query. */
+        fun defaultName(url: String): String = hostOf(url).removePrefix("www.").takeIf { it != "?" } ?: "Feed"
+
+        /**
+         * Identity of a feed address for the duplicate check: scheme and host case-insensitive (no `www.`), the path's CASE KEPT
+         * (servers treat `/Feed` and `/feed` as different), no trailing slash, no fragment, tracking parameters dropped, the query parameters sorted.
+         */
+        fun feedKey(url: String): String {
+            val u = try { java.net.URI(url.trim()) } catch (e: Exception) { return url.trim() }
+            val host = (u.host ?: return url.trim()).lowercase(java.util.Locale.ROOT).removePrefix("www.")
+            val port = if (u.port == -1 || u.port == 443) "" else ":${u.port}"
+            val path = (u.rawPath ?: "").let { if (it.length > 1) it.trimEnd('/') else "" }
+            val query = Dedupe.queryParts(u.rawQuery).sorted().joinToString("&")
+            return "$host$port$path" + if (query.isEmpty()) "" else "?$query"
+        }
 
         fun cleanName(s: String): String = s.filter { !it.isISOControl() }.trim().replace(Regex("\\s+"), " ").take(MAX_NAME)
 

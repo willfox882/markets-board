@@ -60,7 +60,8 @@ class ConnectivityDiagnosticsTest {
 
     @Test fun everySymbolFailingForANetworkReasonIsOfflineButOneIsNot() {
         assertTrue(ConnectivityRules.offline(NetworkStatus.Online, NewsState(), allFailed(ErrorKind.Network), symbols))
-        assertTrue(ConnectivityRules.offline(NetworkStatus.Unknown, NewsState(), allFailed(ErrorKind.Timeout), symbols))
+        // timeouts alone say a host is slow, not that the network is gone
+        assertFalse(ConnectivityRules.offline(NetworkStatus.Unknown, NewsState(), allFailed(ErrorKind.Timeout), symbols))
         val oneOk = allFailed(ErrorKind.Network) + (QuoteRepository.keyFor("MSFT", ChartRange.D1) to fresh("MSFT"))
         assertFalse(ConnectivityRules.offline(NetworkStatus.Online, NewsState(), oneOk, symbols))
         // a server problem is not "offline"
@@ -69,18 +70,36 @@ class ConnectivityDiagnosticsTest {
         assertFalse(ConnectivityRules.offline(NetworkStatus.Online, NewsState(), mapOf(QuoteRepository.keyFor("MSFT", ChartRange.D1) to err(ErrorKind.Network)), symbols))
     }
 
-    @Test fun aWholeNewsPassFailingForANetworkReasonIsOffline() {
-        val down = NewsState(overall = NewsOverall.Stale(60_000), lastPassFailed = true, errorKind = ErrorKind.Network)
+    private fun feedState(id: String, status: FeedStatus, kind: ErrorKind? = null) = FeedState(id, id, status, errorKind = kind)
+
+    @Test fun everyNewsFeedFailingForANetworkReasonIsNewsDownPerFeedSoARecoveredFeedClearsIt() {
+        val down = NewsState(overall = NewsOverall.Stale(60_000), feedStates = listOf(feedState("a", FeedStatus.Error, ErrorKind.Network), feedState("b", FeedStatus.Error, ErrorKind.Network)))
+        assertTrue(ConnectivityRules.newsDown(down))
         assertTrue(ConnectivityRules.offline(NetworkStatus.Online, down, emptyMap(), symbols))
-        assertFalse(ConnectivityRules.offline(NetworkStatus.Online, down.copy(lastPassFailed = false), emptyMap(), symbols))
-        assertFalse(ConnectivityRules.offline(NetworkStatus.Online, down.copy(errorKind = ErrorKind.Parse), emptyMap(), symbols))
-        assertFalse(ConnectivityRules.offline(NetworkStatus.Online, down.copy(overall = NewsOverall.Loading), emptyMap(), symbols))
+        // one feed answers again (or is only slow, or has a server problem): not down any more, whatever lastPassFailed still says
+        val recovered = down.copy(lastPassFailed = true, feedStates = listOf(feedState("a", FeedStatus.Ok), feedState("b", FeedStatus.Error, ErrorKind.Network)))
+        assertFalse(ConnectivityRules.newsDown(recovered))
+        assertFalse(ConnectivityRules.newsDown(down.copy(feedStates = listOf(feedState("a", FeedStatus.Error, ErrorKind.Timeout), feedState("b", FeedStatus.Error, ErrorKind.Network)))))
+        assertFalse(ConnectivityRules.newsDown(down.copy(feedStates = listOf(feedState("a", FeedStatus.Error, ErrorKind.Http(503)), feedState("b", FeedStatus.Error, ErrorKind.Network)))))
+        assertFalse(ConnectivityRules.newsDown(down.copy(feedStates = emptyList())))
+        assertFalse(ConnectivityRules.newsDown(down.copy(overall = NewsOverall.Loading)))
+        assertFalse(ConnectivityRules.newsDown(down.copy(feedStates = listOf(feedState("a", FeedStatus.Pending), feedState("b", FeedStatus.Error, ErrorKind.Network)))))
+    }
+
+    @Test fun aNewsOnlyFailureDoesNotMakeTheMarketsOfflineButANoNetworkSignalDoes() {
+        val down = NewsState(overall = NewsOverall.Stale(60_000), feedStates = listOf(feedState("a", FeedStatus.Error, ErrorKind.Network)))
+        val healthy = symbols.associate { QuoteRepository.keyFor(it, ChartRange.D1) to fresh(it) }
+        assertTrue(ConnectivityRules.offline(NetworkStatus.Online, down, healthy, symbols))
+        assertFalse("Markets keep their live look while only the headlines fail", ConnectivityRules.marketsOffline(NetworkStatus.Online, healthy, symbols))
+        assertTrue(ConnectivityRules.marketsOffline(NetworkStatus.Offline, healthy, symbols))
+        assertTrue(ConnectivityRules.marketsOffline(NetworkStatus.Online, allFailed(ErrorKind.Network), symbols))
+        assertFalse(ConnectivityRules.marketsOffline(NetworkStatus.Online, allFailed(ErrorKind.Timeout), symbols))
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test fun theFlagFollowsTheSignalAndClearsWhenTheNetworkReturns() = runTest {
         val net = FakeNetwork()
-        net.statusFlow.value = NetworkStatus.Online
+        net.set(NetworkStatus.Online)
         val quotes = FakeQuotesSource(VirtualClock(testScheduler))
         val news = object : com.marketsboard.data.news.NewsSource {
             override val state = MutableStateFlow(NewsState())
@@ -89,16 +108,26 @@ class ConnectivityDiagnosticsTest {
         val c = Connectivity(backgroundScope, net, news, quotes, MutableStateFlow(symbols))
         runCurrent()
         assertFalse(c.offline.value)
-        net.statusFlow.value = NetworkStatus.Offline
+        net.set(NetworkStatus.Offline)
         runCurrent()
         assertTrue(c.offline.value)
-        net.statusFlow.value = NetworkStatus.Online
+        net.set(NetworkStatus.Online)
         runCurrent()
         assertFalse(c.offline.value)
         quotes.putAll(allFailed(ErrorKind.Network))
         runCurrent()
         assertTrue(c.offline.value)
+        assertTrue(c.marketsOffline.value)
         quotes.putAll(mapOf("XEQT.TO" to fresh("XEQT.TO")))
+        runCurrent()
+        assertFalse(c.offline.value)
+        assertFalse(c.marketsOffline.value)
+        // headlines alone failing: the app is "offline" for News and Settings, the Markets are not
+        news.state.value = NewsState(overall = NewsOverall.Stale(1), feedStates = listOf(feedState("a", FeedStatus.Error, ErrorKind.Network)))
+        runCurrent()
+        assertTrue(c.offline.value)
+        assertFalse(c.marketsOffline.value)
+        news.state.value = NewsState(overall = NewsOverall.Fresh, feedStates = listOf(feedState("a", FeedStatus.Ok)))
         runCurrent()
         assertFalse(c.offline.value)
     }

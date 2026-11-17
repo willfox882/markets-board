@@ -21,9 +21,38 @@ interface NetworkSignal {
 
     val status: StateFlow<NetworkStatus> get() = UNKNOWN
 
+    /**
+     * How many times [status] has gone Offline (counted by the platform inside its callback, so a quick Offline and Online pair that a
+     * conflated StateFlow would merge is still counted). Consumers compare it with the value they last handled ([OutageTracker]).
+     */
+    val outageCount: Long get() = 0L
+
     companion object {
         private val UNKNOWN: StateFlow<NetworkStatus> = MutableStateFlow(NetworkStatus.Unknown)
 
         val None: NetworkSignal = object : NetworkSignal { override val available: Flow<Unit> = emptyFlow() }
+    }
+}
+
+/**
+ * Remembers whether the network went away since the last pass that followed its return. Counts outages through
+ * [NetworkSignal.outageCount] (never missed, even when the app was in the background) and passes skipped because the status was Offline.
+ * Not thread-confined: all calls are short and synchronized.
+ */
+class OutageTracker(private val net: NetworkSignal) {
+    private var handled = net.outageCount
+    private var skipped = false
+
+    /** A scheduled pass was skipped because there was no network. */
+    @Synchronized fun skippedWhileOffline() { skipped = true }
+
+    @Synchronized fun pending(): Boolean = skipped || net.outageCount != handled
+
+    /** True when an outage is waiting to be answered; clears it. */
+    @Synchronized fun consume(): Boolean {
+        val was = pending()
+        handled = net.outageCount
+        skipped = false
+        return was
     }
 }

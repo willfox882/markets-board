@@ -21,9 +21,10 @@ data class FeedRowUi(
 )
 
 /** The add-feed sheet. [message] is a plain-words reason the last Add did not work (amber); blank otherwise. */
-data class FeedAddUi(val name: String = "", val url: String = "", val message: String = "")
+/** [busy]: an Add is being written (a second tap does nothing). */
+data class FeedAddUi(val name: String = "", val url: String = "", val message: String = "", val busy: Boolean = false)
 
-data class FeedRenameUi(val id: String, val current: String, val original: String)
+data class FeedRenameUi(val id: String, val current: String, val original: String, val message: String = "")
 
 data class FeedRemoveUi(val id: String, val name: String)
 
@@ -95,6 +96,9 @@ interface ToolsActions : FeedsActions {
     fun onOpenFeeds() {}
     fun onOpenDiagnostics() {}
     fun onToolsBack() {}
+
+    /** The Settings tab is on screen (true) or not (false): the diagnostics page only runs while it is. */
+    fun onSettingsVisible(visible: Boolean) {}
 
     companion object { val None: ToolsActions = object : ToolsActions {} }
 }

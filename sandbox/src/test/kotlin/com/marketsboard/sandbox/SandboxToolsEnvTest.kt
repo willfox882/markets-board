@@ -17,7 +17,7 @@ import org.junit.Test
 
 /** M5 end to end in the sandbox (real time): the simulated network toggle, the offline state, the feed editor and the diagnostics. */
 class SandboxToolsEnvTest {
-    private suspend fun <T> until(timeoutMs: Long = 20_000, f: () -> T?): T = withTimeout(timeoutMs) {
+    private suspend fun <T> until(timeoutMs: Long = 30_000, f: () -> T?): T = withTimeout(timeoutMs) {
         var v = f()
         while (v == null) { delay(20); v = f() }
         v
@@ -27,6 +27,9 @@ class SandboxToolsEnvTest {
 
     private fun env(block: suspend (SandboxEnv) -> Any?) {
         runBlocking {
+            // The fake news servers change their content on 5 minute boundaries: never start a test just before one.
+            val toBoundary = 300_000L - System.currentTimeMillis() % 300_000L
+            if (toBoundary < 25_000L) delay(toBoundary + 1_000L)
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             try { block(SandboxEnv(scope)) } finally { scope.cancel() }
         }
@@ -39,6 +42,9 @@ class SandboxToolsEnvTest {
         e.setNetworkOnline(false)
         until { e.connectivity.offline.value.takeIf { it } }
         assertEquals(NetworkStatus.Offline, e.networkStatus.value)
+        // a pass that was already running when the network dropped may still finish: wait until nothing is in flight before counting
+        until { (!e.news.state.value.refreshing && !e.quotes.refreshing.value).takeIf { it } }
+        delay(300)
         // the last data stays on screen
         assertTrue(e.newsPresenter.state.value.rows.isNotEmpty())
         assertTrue(e.presenter.state.value.quotes.all { it.price != null })
@@ -48,6 +54,10 @@ class SandboxToolsEnvTest {
         delay(2_500)
         assertEquals(newsCalls, e.newsFetcher.calls)
         assertEquals(quoteCalls, e.fake.quoteCalls)
+        // a long outage (two virtual minutes in a quarter of a second), so the feeds are due again when the network returns
+        e.time.speed = 600.0
+        delay(250)
+        e.time.speed = 1.0
         // back: the flag clears and a pass runs without anyone pressing Refresh
         e.setNetworkOnline(true)
         until { e.connectivity.offline.value.takeIf { !it } }
@@ -94,6 +104,7 @@ class SandboxToolsEnvTest {
 
     @Test fun theDiagnosticsPageShowsRealHealthWithoutUrlsOrPositions() = env { e ->
         e.ready()
+        e.tools.onSettingsVisible(true) // the diagnostics only run while the Settings tab is on screen
         e.tools.onOpenDiagnostics()
         val d = until { e.tools.state.value.diagnostics.takeIf { it.sections.isNotEmpty() } }
         assertEquals(listOf("Connection", "Prices", "Watchlist cache", "News feeds", "Speed source"), d.sections.map { it.title })

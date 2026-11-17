@@ -155,20 +155,24 @@ class NewsRepository(
 
     // ---- refresh -----------------------------------------------------------------------------------------------
 
-    private class Request(val force: Boolean, val onlyFailed: Boolean) {
-        fun merge(o: Request) = Request(force || o.force, onlyFailed && o.onlyFailed)
+    private class Request(val force: Boolean, val onlyFailed: Boolean, val afterOutage: Boolean = false) {
+        fun merge(o: Request) = Request(force || o.force, onlyFailed && o.onlyFailed, afterOutage || o.afterOutage)
     }
 
     private var pending: Request? = null
 
     /**
      * One pass over the feeds that are due. [force] (manual Refresh) ignores the minimum gap and backoff;
-     * [onlyFailed] (network came back) retries feeds that failed or never answered, ignoring backoff.
+     * [onlyFailed] (a network signal) retries feeds that failed or never answered, but never before their own backoff ends
+     * (429, Retry-After and server errors are honoured). [afterOutage] (the platform reported no network and it is back) does that
+     * AND everything that is simply due, after clearing the waits caused by network or timeout failures (they say nothing about the
+     * servers); it is never forced, so a rate-limited feed stays in its backoff.
      * A request that arrives while a pass is running is not dropped: it is merged into one follow-up pass that runs as
      * soon as the current one ends (so a symbol added, the network returning or a resume during a pass still fetches).
      */
-    suspend fun refresh(force: Boolean = false, onlyFailed: Boolean = false) {
-        synchronized(lock) { pending = pending?.merge(Request(force, onlyFailed)) ?: Request(force, onlyFailed) }
+    suspend fun refresh(force: Boolean = false, onlyFailed: Boolean = false, afterOutage: Boolean = false) {
+        val first = Request(force, onlyFailed, afterOutage)
+        synchronized(lock) { pending = pending?.merge(first) ?: first }
         while (true) {
             if (!passMutex.tryLock()) return // the running pass will pick the request up
             try {
@@ -194,6 +198,10 @@ class NewsRepository(
         val force = req.force
         val onlyFailed = req.onlyFailed
         val feeds = effective()
+        if (req.afterOutage) synchronized(lock) {
+            // Network and timeout failures set a wait that only says the network was bad: the network is back, so it is over.
+            rt.values.forEach { if (it.lastKind == ErrorKind.Network || it.lastKind == ErrorKind.Timeout) it.nextTryMono = 0 }
+        }
         prune(feeds)
         hydrate()
         val pass = Pass()
@@ -202,14 +210,22 @@ class NewsRepository(
             feeds.filter { f ->
                 val r = rt.getOrPut(f.id) { Rt() }
                 val last = r.lastAttemptMono
+                val failedDue = (r.lastError != null || last == null) && (last == null || now - last >= 5_000) && now >= r.nextTryMono
+                val normalDue = (last == null || now - last >= config.minGapMs) && now >= r.nextTryMono
                 when {
                     force -> true
-                    onlyFailed -> (r.lastError != null || last == null) && (last == null || now - last >= 5_000)
-                    else -> (last == null || now - last >= config.minGapMs) && now >= r.nextTryMono
+                    // After a settled return the 5 s guard against a flapping network is not needed: a failed feed is retried at once.
+                    req.afterOutage -> (r.lastError != null && now >= r.nextTryMono) || last == null || normalDue
+                    onlyFailed -> failedDue
+                    else -> normalDue
                 }
             }
         }
-        if (due.isEmpty()) { publish(); return }
+        if (due.isEmpty()) {
+            // Nothing is due: no pass happened, so an old "the whole pass failed" must not outlive the feeds that recovered since.
+            synchronized(lock) { lastPassFailed = feeds.isNotEmpty() && feeds.all { rt[it.id]?.status == FeedStatus.Error } }
+            publish(); return
+        }
         setRefreshing(true)
         try {
             coroutineScope { due.map { f -> async { gate.withPermit { fetchOne(f, pass) } } }.awaitAll() }
@@ -415,7 +431,7 @@ class NewsRepository(
                         f.id, f.name, r?.status ?: FeedStatus.Pending, r?.snapshot?.items?.size ?: 0, r?.lastOkMono?.let { (mono - it).coerceAtLeast(0) },
                         r?.lastError, r?.failures ?: 0, r?.let { (it.nextTryMono - mono).coerceAtLeast(0) } ?: 0, r?.partial ?: false,
                         r?.okCount ?: 0, r?.notModifiedCount ?: 0, r?.errorCount ?: 0, r?.lastErrorMono?.let { (mono - it).coerceAtLeast(0) },
-                        validatorOf(r?.snapshot), r?.lastErrorSeen,
+                        validatorOf(r?.snapshot), r?.lastErrorSeen, if (r?.lastError != null) r.lastKind else null,
                     ),
                 )
                 r?.lastOkMono?.let { if (lastOk == null || it > lastOk!!) lastOk = it }
