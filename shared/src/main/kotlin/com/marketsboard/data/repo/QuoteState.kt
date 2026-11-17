@@ -40,6 +40,21 @@ data class QuoteState(
     val anchorMono: Long? = null,
 )
 
+/**
+ * What the diagnostics screen shows for one quote provider. Ages are monotonic; [lastError] is plain words. The counts are
+ * since the process started. NotFound (a mistyped symbol) is not counted as a provider failure.
+ */
+data class ProviderHealth(
+    val id: String,
+    val lastOkAgeMs: Long? = null,
+    val lastError: String? = null,
+    val lastErrorAgeMs: Long? = null,
+    val failureStreak: Int = 0,
+    val cooldownRemainingMs: Long = 0,
+    val okCount: Int = 0,
+    val errorCount: Int = 0,
+)
+
 /** Tunables of [QuoteRepository]. Defaults suit a parked head unit that polls about once a minute. */
 class RepoConfig(
     val maxConcurrent: Int = 4,

@@ -58,6 +58,8 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier, ratio: Float = 
     val spoken by env.speaker.log.collectAsState()
     val briefing by env.briefing.state.collectAsState()
     val drop by env.dropSecondsLeft.collectAsState()
+    val netStatus by env.networkStatus.collectAsState()
+    val offlineFlag by env.connectivity.offline.collectAsState()
     val refreshing by env.quotes.refreshing.collectAsState()
 
     Column(
@@ -132,6 +134,7 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier, ratio: Float = 
             listOf(1, 10, 60).forEach { s -> Chip("x$s", selected = s == speed) { speed = s; env.time.speed = s.toDouble() } }
         }
         Hairline()
+        SwitchRow("Network", netStatus != com.marketsboard.refresh.NetworkStatus.Offline, { env.setNetworkOnline(it) }, subtitle = if (offlineFlag) "The app shows its offline line" else "Off: the hotspot is gone, polling stops")
         PillButton(
             if (drop > 0) "Hotspot is down, back in ${drop} s" else "Simulate hotspot drop (20 s)",
             { env.simulateHotspotDrop(20) }, Modifier.fillMaxWidth(), kind = PillKind.Secondary, small = true,

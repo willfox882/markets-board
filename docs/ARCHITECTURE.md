@@ -5,7 +5,8 @@
 - `README.md`: human overview.
 - `settings.gradle.kts`, `build.gradle.kts`, `gradle.properties`, `gradle/libs.versions.toml`: Gradle setup and version catalog.
 - `local.properties`: sdk.dir (gitignored). `.gitignore`: build outputs, local.properties, *.apk.
-- `.github/workflows/build.yml`: CI (tests, assembleDebug, lintDebug, sandboxJar, artifacts).
+- `.github/workflows/build.yml`: CI (tests, assembleDebug, lintDebug, sandboxJar, screenshots; artifacts `release-<sha>` (versioned debug-signed APK, sandbox jar, SHA256SUMS), app-debug, sandbox, screenshots, lint).
+- `docs/INSTALL.md`: sideloading, hotspot, permissions, split screen and the in-truck checklist.
 - `docs/PLAYBOOK.md`: orchestrator brief and milestone plan (do not edit). `docs/PROGRESS.md`: state and decisions. `docs/SANDBOX.md`: desktop simulator. `docs/licenses/OFL-Geist.txt`: font licence.
 
 ## shared/ (compiled by both :app and :sandbox)
@@ -33,7 +34,12 @@
 - `.../refresh/RefreshController.kt`: the refresh policy (per-phase intervals from `PollPolicy`, immediate on start/resume/symbol-SET change, resume-after-sleep rules, network-available pass, 15 s age recompute, pause when inactive, cooldown aware, never under 60 s per symbol, manual debounce), `Refresher`, `RefreshConfig`.
 - `.../refresh/ActiveGate.kt`: foreground gate (`isActive`, `resume`, `pause`, `launchWhileActive`); gates the quote controller and the news poller.
 - `.../refresh/NewsPoller.kt`: news polling policy (hydrate cache, pass on resume, every 10 min while active, network-back retries failed feeds, config change retags and fetches, ages tick, debounced forced manual refresh) + `NewsRefresher`, `NewsPollConfig`.
-- `.../refresh/NetworkSignal.kt`: interface for "network became available" (Android implements it).
+- `.../refresh/NetworkSignal.kt`: `NetworkSignal` (`available` flow and `status` StateFlow) and `NetworkStatus` (Unknown, Online, Offline); Android implements it.
+- `.../refresh/Connectivity.kt`: `ConnectivityRules` (pure "offline" decision from the platform status and the data layer's failures) and `Connectivity` (the one `offline` StateFlow).
+- `.../ui/OfflineView.kt`: pure rule of how Markets and News look while offline (one banner text, calm rows, no spinner).
+- `.../ui/tools/ToolsUi.kt`: Settings sub-page models (`ToolsPage`, `FeedsUiState`, `FeedRowUi`, `FeedAddUi`, `DiagnosticsUiState`, `ToolsUiState`) and `FeedsActions` / `ToolsActions` (not driving-gated).
+- `.../ui/tools/FeedsPresenter.kt`: the feed editor over `FeedStore` (serial write queue, add validation, dialogs, read-only note). `ToolsPresenter.kt`: page navigation, back order, diagnostics gated to its page. `FeedsScreen.kt` (list, add sheet, dialogs, shared `PageHeader`), `DiagnosticsScreen.kt`.
+- `.../ui/tools/DiagnosticsMapper.kt`: pure `DiagnosticsInput` to `DiagnosticsUiState` (+ `DiagText` age words); `DiagnosticsPresenter.kt`: `DiagnosticsSources` and the cold flow that feeds it.
 - `.../ui/UiMode.kt`: `Normal` / `Glance`; driven by `DrivingGate.mode`.
 - `.../ui/GlanceRules.kt`: the Glance contract: `MarketsAct`, `NewsAct`, `SettingsAct` enums (one entry per presenter action, each Allowed or Blocked in Glance); presenters route every action through `guarded(Act.X)`.
 - `.../data/MarketsData.kt`: watchlist + quotes + provider bundle; remove/replace/reset that also `forget`, `validateAndReplace`, `replaceUnverified`.
@@ -81,7 +87,7 @@
 - `.../data/news/FeedParser.kt`: hardened `XmlPullParser` (platform KXmlParser on Android, kxml2 on the JVM) parser for RSS 2.0, RSS 1.0 (RDF) and Atom; a linear whole-input DOCTYPE scan refuses any DOCTYPE, size/depth/item caps, http(s) links only (`safeFeedUrl`: https only), partial salvage (a cut-off document counts as an error), typed Parse errors, dates more than 5 min ahead replaced.
 - `.../data/news/Dedupe.kt`: canonical URL, normalised title, token Dice similarity (looser when summaries are identical); title and summary rules join only items of DIFFERENT feeds within 12 h and never when the titles move opposite ways (rise/fall words); merge keeps the earliest report and the union of tags.
 - `.../data/news/Relevance.kt`: `SymbolMatcher` (ticker upper case whole word, company names, distinctive first word) and `Relevance.labelOf`.
-- `.../data/news/FeedStore.kt`: `FeedStore` (`feeds.json` v1, fsync'd atomic writes, `.bak`, corrupt quarantine, newer-version read-only; add/remove/enable/rename/move/reset), `FeedSource`, `DefaultFeeds`, `FeedPlan` (effective feeds, auto per-symbol Yahoo feeds, cap 6).
+- `.../data/news/FeedStore.kt` (editor UI in `ui/tools`): `FeedStore` (`feeds.json` v1, fsync'd atomic writes, `.bak`, corrupt quarantine, newer-version read-only; add/remove/enable/rename/move/reset), `FeedSource`, `DefaultFeeds`, `FeedPlan` (effective feeds, auto per-symbol Yahoo feeds, cap 6).
 - `.../data/news/NewsCodec.kt`: JSON of one feed's cached items plus ETag/Last-Modified (`FeedSnapshot`), re-validated on read.
 - `.../data/news/NewsRepository.kt`: fetch (max 3 parallel), conditional GET, per-feed health and exponential backoff (network/timeout errors capped at 10 min), offline short-circuit, requests during a running pass queued as one follow-up, an attempt counts only when it finishes, merge/dedupe/retag/sort/cap/7-day cut, SWR cache hydrate (a cache from a clock ahead of the device is Stale with an unknown age), median server `Date` offset (with `Age`), dominant error kind, `StateFlow<NewsState>`.
 - `.../data/news/NewsSource.kt`: the small interface the presenter needs from the repository.
@@ -96,7 +102,7 @@
 - `app/src/main/java/com/marketsboard/AndroidLocationAccess.kt`: location permission state + request hook for the Activity.
 - `app/src/main/java/com/marketsboard/AndroidSpeaker.kt`: `TextToSpeech` en-CA then en-US, assistant/speech audio attributes, may-duck audio focus, generation-tagged callbacks, failure states, shutdown.
 - `app/src/main/java/com/marketsboard/AndroidClock.kt`: production `Clock` (monotonic = `elapsedRealtime`, so ages include deep sleep).
-- `app/src/main/java/com/marketsboard/ConnectivityNetworkSignal.kt`: `NetworkSignal` from a ConnectivityManager default-network callback: fires on available and again when the network becomes VALIDATED (hotspot with working internet); shared by Markets and News.
+- `app/src/main/java/com/marketsboard/ConnectivityNetworkSignal.kt`: `NetworkSignal` from ONE process-wide default-network callback: `available` fires on available and again on VALIDATED, `status` is Offline only when the current default network is lost; shared by Markets, News and Connectivity.
 - `app/src/main/java/com/marketsboard/MarketsBoardApplication.kt`: Application; builds `AppGraph` and `AppRuntime` (crash-proof, null on failure).
 - `app/src/main/res/`: `values/themes.xml` (window bg #0A0A0B), `values/colors.xml`, `drawable/ic_launcher_fg.xml` (line chart glyph), `mipmap-anydpi-v26/ic_launcher.xml` (adaptive + monochrome).
 - `app/src/test/kotlin/com/marketsboard/ui/FormatTest.kt`: Format rounding, sign/colour agreement, time-ago.
@@ -122,6 +128,7 @@
 - `.../sandbox/PaneShape.kt`: the pane shapes (Full 9:16, Top / bottom half 9:8, Short strip 3:2) with their screenshot sizes.
 - `.../sandbox/ControlPanel.kt`: panel in the app's own style (pane shape and height slider, behaviour, latency, clock skew, speed slider, GPS lost, no permission, passenger, speaker modes and log, app active, time speed, hotspot drop, reset).
 - `.../sandbox/FakeSpeaker.kt`: no-sound `Speaker` for the sandbox (timing from the text, modes Ok, Unavailable, ErrorMidway, FocusLost, a log of the sentences).
+- `.../sandbox/ToolsFixtures.kt`: deterministic feed editor, diagnostics and offline states.
 - `.../sandbox/ScreenshotFixtures.kt`: deterministic Markets states (fake provider at a fixed time through `UiMapper`) for screenshots and render tests.
 - `.../sandbox/Fonts.kt`: `loadDashFonts()` from classpath.
 - `.../sandbox/FakeMarketDataProvider.kt`: deterministic fake provider (any symbol, currency inference, exchange time zones, latency, behaviours Normal/Slow/Offline/RateLimited/PartialFailure/BadData, 27-entry search catalogue).
@@ -142,3 +149,5 @@
 - `app/src/test/kotlin/com/marketsboard/ui/GlanceContractTest.kt`: the Glance contract (every presenter action enumerated through the `GlanceRules.kt` enums, blocked ones change/write/fetch nothing; overlays close, drafts kept in memory; source scan that every action is guarded).
 - `app/src/test/kotlin/com/marketsboard/briefing/BriefingControllerTest.kt` (with `TestSpeaker`), `data/settings/AppSettingsStoreTest.kt`: briefing flow and the two new stores.
 - `app/src/test/kotlin/com/marketsboard/speech/SpeechMachineTest.kt`: CAN_DUCK focus loss, the init race, the ERROR path, watchdogs (scripted platform).
+- `app/src/test/kotlin/com/marketsboard/ui/FeedsPresenterTest.kt`: feed editor and Settings page navigation (add validation, limits, reset, read-only, back order, diagnostics only while open); `ui/ConnectivityDiagnosticsTest.kt`: offline rules, `OfflineView`, diagnostics mapper wording; `refresh/RefreshControllerTest.kt` and `NewsPollerTest.kt` hold the offline skip, settle and return tests.
+- `sandbox/src/test/kotlin/com/marketsboard/sandbox/ToolsRenderTest.kt` (M5 screens at 440 dp: palette, gutters, offline line, tap tests) and `SandboxToolsEnvTest.kt` (network drop and return, feed edits, diagnostics against the real repositories).

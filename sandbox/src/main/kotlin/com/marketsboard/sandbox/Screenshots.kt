@@ -11,6 +11,7 @@ import com.marketsboard.core.DrivingStatus
 import com.marketsboard.data.settings.AppSettings
 import com.marketsboard.speech.SpeakerAvailability
 import com.marketsboard.ui.UiMode
+import com.marketsboard.ui.tools.ToolsUiState
 import com.marketsboard.ui.settings.AboutInfo
 import com.marketsboard.ui.settings.SettingsUiState
 import com.marketsboard.ui.MarketsBoardRoot
@@ -33,11 +34,11 @@ fun main(args: Array<String>) {
     fun shot(
         name: String, state: MarketsUiState, tab: MbTab = MbTab.Markets, news: NewsUiState = NewsUiState(), w: Int = 810, h: Int = 1440,
         driving: DrivingStatus = DrivingStatus(UiMode.Normal, DrivingReason.Parked), briefing: BriefingUiState = BriefingUiState(),
-        settings: SettingsUiState = SettingsUiState(),
+        settings: SettingsUiState = SettingsUiState(), tools: ToolsUiState = ToolsUiState(), offline: Boolean = false,
     ) {
         val scene = ImageComposeScene(width = w, height = h, density = Density(1f)) {
             MarketsBoardTheme {
-                MarketsBoardRoot(state, news, tab, mode = driving.mode, driving = driving, briefing = briefing, settings = settings)
+                MarketsBoardRoot(state, news, tab, mode = driving.mode, driving = driving, briefing = briefing, settings = settings, tools = tools, offline = offline)
             }
         }
         for (i in 0 until 8) scene.render(i * 120_000_000L) // let animations settle
@@ -109,12 +110,30 @@ fun main(args: Array<String>) {
     shot("markets_glance_checking", F.glance(), driving = DrivingStatus(UiMode.Glance, DrivingReason.Checking))
     shot("passenger_label", F.normal(), driving = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0))
 
+    // ---- M5: feed editor, diagnostics, offline ----
+    val T = ToolsFixtures
+    val settingsParked = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.6.0", "debug 1"))
+    shot("feeds", F.normal(), MbTab.Settings, tools = T.feeds(), settings = settingsParked)
+    shot("feeds_selected", F.normal(), MbTab.Settings, tools = T.feedsSelected(), settings = settingsParked)
+    shot("feeds_add", F.normal(), MbTab.Settings, tools = T.feedsAdd(), settings = settingsParked)
+    shot("feeds_add_error", F.normal(), MbTab.Settings, tools = T.feedsAddError(), settings = settingsParked)
+    shot("feeds_confirm_remove", F.normal(), MbTab.Settings, tools = T.feedsConfirmRemove(), settings = settingsParked)
+    shot("feeds_confirm_reset", F.normal(), MbTab.Settings, tools = T.feedsConfirmReset(), settings = settingsParked)
+    shot("feeds_rename", F.normal(), MbTab.Settings, tools = T.feedsRename(), settings = settingsParked)
+    shot("feeds_read_only", F.normal(), MbTab.Settings, tools = T.feedsReadOnly(), settings = settingsParked)
+    shot("diagnostics", F.normal(), MbTab.Settings, tools = T.diagnostics(), settings = settingsParked)
+    shot("diagnostics_offline", F.normal(), MbTab.Settings, tools = T.diagnosticsOffline(), settings = settingsParked)
+    shot("settings_main", F.normal(), MbTab.Settings, settings = settingsParked)
+    shot("markets_offline", T.offlineMarkets(), offline = true)
+    shot("news_offline", F.normal(), MbTab.News, F.newsStale(), offline = true)
+
     // ---- pane-aware layouts: the main screens again at a top/bottom half (810x720) and a short strip (810x540) ----
     for ((shape, sfx) in listOf(PaneShape.Half to "half", PaneShape.Strip to "strip")) {
         fun p(
             name: String, state: MarketsUiState, tab: MbTab = MbTab.Markets, news: NewsUiState = NewsUiState(),
             driving: DrivingStatus = parked, briefing: BriefingUiState = BriefingUiState(), settings: SettingsUiState = SettingsUiState(),
-        ) = shot("${name}_$sfx", state, tab, news, shape.shotWidth, shape.shotHeight, driving, briefing, settings)
+            tools: ToolsUiState = ToolsUiState(), offline: Boolean = false,
+        ) = shot("${name}_$sfx", state, tab, news, shape.shotWidth, shape.shotHeight, driving, briefing, settings, tools, offline)
         p("markets_normal", F.normal())
         p("markets_skew_stale", F.skewAndStale())
         p("markets_editor", F.editor())
@@ -124,6 +143,14 @@ fun main(args: Array<String>) {
         p("news_detail", F.normal(), MbTab.News, F.newsDetail())
         p("news_stale", F.normal(), MbTab.News, F.newsStale())
         p("settings", F.normal(), MbTab.Settings, settings = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.1.0", "debug 1")))
+        p("feeds", F.normal(), MbTab.Settings, tools = T.feeds(), settings = settingsParked)
+        p("feeds_selected", F.normal(), MbTab.Settings, tools = T.feedsSelected(), settings = settingsParked)
+        p("feeds_add", F.normal(), MbTab.Settings, tools = T.feedsAdd(), settings = settingsParked)
+        p("feeds_add_error", F.normal(), MbTab.Settings, tools = T.feedsAddError(), settings = settingsParked)
+        p("diagnostics", F.normal(), MbTab.Settings, tools = T.diagnostics(), settings = settingsParked)
+        p("settings_main", F.normal(), MbTab.Settings, settings = settingsParked)
+        p("markets_offline", T.offlineMarkets(), offline = true)
+        p("news_offline", F.normal(), MbTab.News, F.newsStale(), offline = true)
         p("markets_glance", F.glance(), driving = moving)
         p("news_glance", F.glance(), MbTab.News, F.newsGlance(), driving = moving)
         p("briefing_normal_speaking", F.normal(), briefing = speaking)

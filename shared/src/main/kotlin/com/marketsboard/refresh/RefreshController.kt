@@ -37,6 +37,8 @@ class RefreshConfig(
     val agesTickMs: Long = 15_000,
     /** Manual Refresh or Retry presses closer together than this are ignored. */
     val manualDebounceMs: Long = 5_000,
+    /** A burst of network signals (available, then validated, a flapping hotspot) is answered by ONE pass this long after the last one. */
+    val networkSettleMs: Long = 1_000,
     /** A difference between wall and monotonic time larger than this after a pause counts as the device sleeping. */
     val suspendToleranceMs: Long = 5_000,
     val timeScale: () -> Double = { 1.0 },
@@ -59,8 +61,9 @@ class RefreshConfig(
  * - Then a tick every [RefreshConfig.tickMs]: a symbol is due per [PollPolicy]: 60 s for a live (REGULAR) market,
  *   unknown state, no quote yet or a failed last refresh; 5 min for PRE and POST; for a closed market 30 min or the
  *   next session start when that is sooner. Never faster than 60 s per symbol automatically.
- * - A network-available signal triggers an immediate pass for symbols with no quote or a failed last refresh,
- *   ignoring the minimum gap.
+ * - A network-available signal triggers (after [RefreshConfig.networkSettleMs], bursts collapse into one) an immediate pass for
+ *   symbols with no quote, a failed last refresh or a stale quote, ignoring the minimum gap. While [NetworkSignal.status] is
+ *   Offline the automatic passes do nothing.
  * - While the repository cools down (429 or 5xx) no automatic pass happens; the next tick after it retries.
  * - At most 4 fetches at once (the repository enforces it per `refresh` call).
  * - `recomputeAges()` every 15 s while active.
@@ -77,12 +80,15 @@ class RefreshController(
     private val clock: Clock,
     private val config: RefreshConfig = RefreshConfig(),
     private val onResume: () -> Unit = {},
-    network: NetworkSignal = NetworkSignal.None,
+    private val network: NetworkSignal = NetworkSignal.None,
 ) : Refresher {
     private val lastDone = HashMap<String, Long>()
     private val lastManual = HashMap<String, Long>()
     private val lock = Any()
     @Volatile private var latest: List<String> = emptyList()
+
+    /** The platform reported "no network" since the last pass that followed a return: on return every symbol is retried. */
+    @Volatile private var offlineSeen = false
 
     private var wasActive = false
     private var pausedWall: Long? = null
@@ -92,6 +98,7 @@ class RefreshController(
         scope.launch {
             symbols.collect { latest = it }
         }
+        scope.launch { network.status.collect { if (it == NetworkStatus.Offline) offlineSeen = true } }
         scope.launch {
             combine(isActive, symbols.map { it.toSet() }.distinctUntilChanged()) { a, s ->
                 noteTransition(a)
@@ -121,7 +128,7 @@ class RefreshController(
         }
         scope.launch {
             isActive.collectLatest { active ->
-                if (active) network.available.collect { networkPass() }
+                if (active) network.available.collectLatest { pause(config.networkSettleMs); networkPass() }
             }
         }
     }
@@ -166,11 +173,14 @@ class RefreshController(
 
     /** Network came back: retry what is broken, now, whatever the minimum gap says. */
     private suspend fun networkPass() {
+        if (network.status.value == NetworkStatus.Offline) return
         if (quotes.cooldownRemainingMs() > 0) return
         val states = quotes.states.value
-        val broken = latest.filter { s ->
+        val wasOffline = offlineSeen
+        offlineSeen = false
+        val broken = if (wasOffline) latest else latest.filter { s ->
             val st = states[com.marketsboard.data.repo.QuoteRepository.keyFor(s, ChartRange.D1)]
-            st == null || st.quote == null || st.lastError != null
+            st == null || st.quote == null || st.lastError != null || st.status !is com.marketsboard.data.repo.QuoteStatus.Fresh
         }
         if (broken.isEmpty()) return
         safely { quotes.refresh(broken, ChartRange.D1, force = false) }
@@ -179,6 +189,8 @@ class RefreshController(
 
     private suspend fun pass(syms: List<String>, immediate: Boolean) {
         safely { quotes.hydrate(syms, ChartRange.D1) }
+        // No network at all: no automatic fetches (no timeouts, no spinners). The next network signal retries at once.
+        if (network.status.value == NetworkStatus.Offline) return
         if (quotes.cooldownRemainingMs() > 0) return
         val now = clock.monoMs()
         val wall = clock.nowMs()

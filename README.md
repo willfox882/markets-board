@@ -8,7 +8,7 @@ affect the speedometer.
 - Tabs: Markets, News, Settings. Metric units. Dark only, portrait only.
 - Kotlin + Jetpack Compose; UI code in `shared/` runs on Android and on a desktop sandbox.
 
-Status: milestone M0 (scaffold and placeholder shell). See `docs/PROGRESS.md`.
+Status: milestone M5 (version 0.6.0). Install: `docs/INSTALL.md`. State: `docs/PROGRESS.md`.
 
 ```bash
 ./gradlew testDebugUnitTest :sandbox:test assembleDebug lintDebug :sandbox:sandboxJar :sandbox:screenshots

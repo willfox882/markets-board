@@ -79,6 +79,11 @@ class NewsRepository(
         var lastError: String? = null,
         var lastKind: ErrorKind? = null,
         var partial: Boolean = false,
+        var okCount: Int = 0,
+        var notModifiedCount: Int = 0,
+        var errorCount: Int = 0,
+        var lastErrorMono: Long? = null,
+        var lastErrorSeen: String? = null,
     )
 
     private class Pass { @Volatile var offline: ErrorKind? = null; @Volatile var attempted = 0; @Volatile var succeeded = 0 }
@@ -267,7 +272,7 @@ class NewsRepository(
             observeServerDate(f.id, resp)
             synchronized(lock) {
                 rt.getValue(f.id).apply {
-                    this@NewsRepository.confirmed = true; status = FeedStatus.NotModified; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null; partial = false
+                    this@NewsRepository.confirmed = true; status = FeedStatus.NotModified; notModifiedCount++; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null; partial = false
                     snapshot = held.copy(okAtMs = clock.nowMs())
                 }
             }
@@ -291,7 +296,7 @@ class NewsRepository(
                 val snap = FeedSnapshot(items, resp.headers["etag"]?.take(300), resp.headers["last-modified"]?.take(100), clock.nowMs())
                 synchronized(lock) {
                     rt.getValue(f.id).apply {
-                        this@NewsRepository.confirmed = true; status = FeedStatus.Ok; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null
+                        this@NewsRepository.confirmed = true; status = FeedStatus.Ok; okCount++; lastOkMono = clock.monoMs(); failures = 0; nextTryMono = 0; lastError = null; lastKind = null
                         partial = parsed.value.partial; snapshot = snap
                     }
                 }
@@ -351,6 +356,9 @@ class NewsRepository(
         synchronized(lock) {
             rt.getValue(f.id).apply {
                 status = FeedStatus.Error
+                errorCount++
+                lastErrorMono = clock.monoMs()
+                lastErrorSeen = NewsText.feedError(err.kind)
                 failures++
                 lastKind = err.kind
                 lastError = NewsText.feedError(err.kind)
@@ -406,6 +414,8 @@ class NewsRepository(
                     FeedState(
                         f.id, f.name, r?.status ?: FeedStatus.Pending, r?.snapshot?.items?.size ?: 0, r?.lastOkMono?.let { (mono - it).coerceAtLeast(0) },
                         r?.lastError, r?.failures ?: 0, r?.let { (it.nextTryMono - mono).coerceAtLeast(0) } ?: 0, r?.partial ?: false,
+                        r?.okCount ?: 0, r?.notModifiedCount ?: 0, r?.errorCount ?: 0, r?.lastErrorMono?.let { (mono - it).coerceAtLeast(0) },
+                        validatorOf(r?.snapshot), r?.lastErrorSeen,
                     ),
                 )
                 r?.lastOkMono?.let { if (lastOk == null || it > lastOk!!) lastOk = it }
@@ -433,6 +443,14 @@ class NewsRepository(
         }
         _state.value = NewsState(items, states, overall, refreshing, age, failed, offset, dominant)
     }
+}
+
+private fun validatorOf(s: FeedSnapshot?): String = when {
+    s == null -> "None"
+    s.etag != null && s.lastModified != null -> "ETag + Last-Modified"
+    s.etag != null -> "ETag"
+    s.lastModified != null -> "Last-Modified"
+    else -> "None"
 }
 
 /** The failure most feeds share (ties go to the more actionable kind), so the banner can tell the truth. */

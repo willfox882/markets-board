@@ -53,6 +53,8 @@ fun SandboxApp() {
     val briefing by env.briefing.state.collectAsState()
     val settings by env.settingsPresenter.state.collectAsState()
     val driving by env.driving.status.collectAsState()
+    val tools by env.tools.state.collectAsState()
+    val offline by env.connectivity.offline.collectAsState()
     // Pane shape: height / width of the simulated pane (9:16 full screen by default; see PaneShape).
     var ratio by remember { mutableStateOf(PaneShape.Full.ratio) }
     MarketsBoardTheme {
@@ -78,6 +80,7 @@ fun SandboxApp() {
                             state, newsState, actions = env.presenter, mode = driving.mode, newsActions = env.newsPresenter,
                             driving = driving, briefing = briefing, briefingActions = env.briefing,
                             settings = settings, settingsActions = env.settingsPresenter, drivingActions = env.drivingActions,
+                            tools = tools, toolsActions = env.tools, offline = offline,
                         )
                     }
                 }

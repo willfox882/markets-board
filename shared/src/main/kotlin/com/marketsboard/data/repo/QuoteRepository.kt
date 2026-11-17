@@ -1,5 +1,6 @@
 package com.marketsboard.data.repo
 
+import com.marketsboard.core.ErrorText
 import com.marketsboard.core.PollPolicy
 import com.marketsboard.data.Clock
 import com.marketsboard.data.model.ChartRange
@@ -79,6 +80,11 @@ class QuoteRepository(
     private val cooldownUntil = HashMap<String, Long>() // monotonic ms
     private val failureStreak = HashMap<String, Int>()
     private val health = Any()
+    private val lastOkMono = HashMap<String, Long>()
+    private val lastErrorMono = HashMap<String, Long>()
+    private val lastErrorText = HashMap<String, String>()
+    private val okCount = HashMap<String, Int>()
+    private val errorCount = HashMap<String, Int>()
 
     private val forgotten = HashSet<String>()
 
@@ -296,10 +302,34 @@ class QuoteRepository(
     private fun onProviderSuccess(id: String) = synchronized(health) {
         failureStreak.remove(id)
         cooldownUntil.remove(id)
+        lastOkMono[id] = clock.monoMs()
+        okCount[id] = (okCount[id] ?: 0) + 1
+    }
+
+    /** Per-provider health for the diagnostics screen: last success and error (plain words), streak, cooldown, counts. Never throws. */
+    override fun providerHealth(): List<ProviderHealth> = synchronized(health) {
+        val now = clock.monoMs()
+        providers.map { p ->
+            ProviderHealth(
+                id = p.id,
+                lastOkAgeMs = lastOkMono[p.id]?.let { (now - it).coerceAtLeast(0) },
+                lastError = lastErrorText[p.id],
+                lastErrorAgeMs = lastErrorMono[p.id]?.let { (now - it).coerceAtLeast(0) },
+                failureStreak = failureStreak[p.id] ?: 0,
+                cooldownRemainingMs = ((cooldownUntil[p.id] ?: 0L) - now).coerceAtLeast(0),
+                okCount = okCount[p.id] ?: 0,
+                errorCount = errorCount[p.id] ?: 0,
+            )
+        }
     }
 
     private fun onProviderError(id: String, e: FetchResult.Err) {
         val kind = e.kind
+        if (kind != ErrorKind.NotFound) synchronized(health) {
+            lastErrorText[id] = ErrorText.reason(kind, 0)
+            lastErrorMono[id] = clock.monoMs()
+            errorCount[id] = (errorCount[id] ?: 0) + 1
+        }
         val throttled = kind is ErrorKind.RateLimited
         val serverTrouble = kind is ErrorKind.Http && kind.code >= 500
         if (!throttled && !serverTrouble) return

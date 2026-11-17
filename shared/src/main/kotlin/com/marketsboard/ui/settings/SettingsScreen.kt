@@ -30,6 +30,7 @@ import com.marketsboard.ui.SectionHeader
 import com.marketsboard.ui.SwitchRow
 import com.marketsboard.ui.TextAction
 import com.marketsboard.ui.ValueRow
+import com.marketsboard.ui.tools.ToolsActions
 import java.util.Locale
 
 /** Where the market and news data come from (About). */
@@ -44,7 +45,7 @@ private val DATA_SOURCES = listOf(
  * the gate's live status and reason, the permission action), Briefing, About. Stateless: [state] in, [actions] out.
  */
 @Composable
-fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, actions: SettingsActions = SettingsActions.None) {
+fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, actions: SettingsActions = SettingsActions.None, tools: ToolsActions = ToolsActions.None) {
     val s = state.settings
     val d = state.driving
     val pane = LocalPaneSpec.current
@@ -109,6 +110,17 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
                         SpeakerAvailability.Unknown -> "Checked on first use"
                     },
                 )
+                Hairline()
+            }
+        }
+
+        item { SectionHeader("News and data", Modifier.padding(top = sectionGap)) }
+        item {
+            Column {
+                Hairline(Modifier.padding(top = 4.dp))
+                ValueRow("News feeds", "", onClick = tools::onOpenFeeds)
+                Hairline()
+                ValueRow("Diagnostics", "", onClick = tools::onOpenDiagnostics)
                 Hairline()
             }
         }

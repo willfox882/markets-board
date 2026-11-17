@@ -30,6 +30,8 @@ class NewsPollConfig(
     val agesTickMs: Long = 30_000L,
     /** Manual presses closer together than this are ignored. */
     val manualDebounceMs: Long = 5_000L,
+    /** A burst of network signals is answered by one pass this long after the last one. */
+    val networkSettleMs: Long = 1_000L,
     /** Divides every delay; only the sandbox "time speed" uses it. */
     val timeScale: () -> Double = { 1.0 },
 )
@@ -38,7 +40,7 @@ class NewsPollConfig(
  * The news polling policy, same shape as the Markets refresh controller:
  * - everything runs only while [isActive] (Activity resumed) and restarts on every resume;
  * - cached headlines are loaded first (SWR), then an immediate pass, then one every [NewsPollConfig.pollMs];
- * - [network] coming back retries failed feeds at once;
+ * - [network] coming back retries failed feeds at once (everything, when automatic passes were skipped while it was offline; bursts of signals collapse into one pass);
  * - a change of the watchlist or the feed list retags immediately and runs a pass for any new feed;
  * - manual refresh is forced (ignores minimum gap and backoff) and debounced.
  * Passes are serialised inside [NewsRepository], so overlapping triggers cost nothing.
@@ -56,6 +58,7 @@ class NewsPoller(
     private var lastManualMono = Long.MIN_VALUE / 2
 
     init {
+        scope.launch { network.status.collect { if (it == NetworkStatus.Offline) offlineSeen = true } }
         scope.launch {
             // Cached headlines are available before the first resume.
             try { repo.hydrate() } catch (e: CancellationException) { throw e } catch (e: Throwable) { /* never fatal */ }
@@ -63,12 +66,21 @@ class NewsPoller(
         scope.launch {
             isActive.collectLatest { active ->
                 if (active) coroutineScope {
-                    launch { safely { repo.refresh() }; loopPolls() }
-                    launch { network.available.collect { safely { repo.refresh(onlyFailed = true) } } }
+                    launch { safely { pollOnce() }; loopPolls() }
+                    launch {
+                        network.available.collectLatest {
+                            delay(scaled(config.networkSettleMs))
+                            if (network.status.value == NetworkStatus.Offline) return@collectLatest
+                            // The network was gone for a while: everything is due, not only the feeds that happened to fail.
+                            val wasOffline = offlineSeen
+                            offlineSeen = false
+                            safely { if (wasOffline) repo.refresh(force = true) else repo.refresh(onlyFailed = true) }
+                        }
+                    }
                     launch { while (true) { delay(scaled(config.agesTickMs)); repo.recompute() } }
                     launch {
                         combine(feeds.feeds, feeds.symbolFeeds, watch) { f, s, w -> Triple(f, s, w.map { it.symbol to it.name }) }
-                            .distinctUntilChanged().drop(1).collect { safely { repo.onConfigChanged(); repo.refresh() } }
+                            .distinctUntilChanged().drop(1).collect { safely { repo.onConfigChanged(); pollOnce() } }
                     }
                 }
             }
@@ -78,8 +90,17 @@ class NewsPoller(
     private suspend fun loopPolls() {
         while (true) {
             delay(scaled(config.pollMs))
-            safely { repo.refresh() }
+            safely { pollOnce() }
         }
+    }
+
+    /** The platform reported "no network" since the last pass that followed a return (set even while the app is in the background). */
+    @Volatile private var offlineSeen = false
+
+    /** One automatic pass, unless the platform says there is no network at all (then it waits for the network signal). */
+    private suspend fun pollOnce() {
+        if (network.status.value == NetworkStatus.Offline) { offlineSeen = true; return }
+        repo.refresh()
     }
 
     private fun scaled(ms: Long): Long = (ms / config.timeScale().coerceAtLeast(0.01)).toLong().coerceAtLeast(1)

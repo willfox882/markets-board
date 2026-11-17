@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.marketsboard.refresh.NetworkStatus
 
 /** The refresh policy of the Markets tab, driven by virtual time and a clock that follows it. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -362,12 +363,12 @@ class RefreshControllerTest {
         tick(10_000)
         r.quotes.put("B", QuoteState(null, QuoteStatus.Error(ErrorKind.Network), null, FetchResult.Err(ErrorKind.Network, "x")))
         r.network.back()
-        runCurrent()
+        tick(1_000) // the settle time that collapses a burst of signals into one pass
         assertEquals(2, r.quotes.calls.size)
         assertEquals(listOf("B"), r.quotes.calls[1].symbols) // only the broken one, 10 s after the last attempt
-        assertEquals(10_000L, r.quotes.calls[1].atMs)
+        assertEquals(11_000L, r.quotes.calls[1].atMs)
         r.network.back() // everything healthy now: nothing to do
-        runCurrent()
+        tick(1_000)
         assertEquals(2, r.quotes.calls.size)
     }
 
@@ -377,14 +378,41 @@ class RefreshControllerTest {
         r.quotes.put("A", QuoteState(null, QuoteStatus.Error(ErrorKind.Network), null, FetchResult.Err(ErrorKind.Network, "x")))
         r.quotes.cooldownMs = 60_000
         r.network.back()
-        runCurrent()
+        tick(1_000)
         assertEquals(1, r.quotes.calls.size)
         r.quotes.cooldownMs = 0
         r.active.value = false
         runCurrent()
         r.network.back()
-        runCurrent()
+        tick(1_000)
         assertEquals(1, r.quotes.calls.size)
+    }
+
+    @Test fun noAutomaticPassWhileTheNetworkIsOfflineThenTheReturnRefreshesStaleQuotes() = runTest {
+        val r = Rig(this)
+        r.network.statusFlow.value = NetworkStatus.Offline
+        runCurrent()
+        tick(10 * 60_000L)
+        assertEquals("no fetch attempts without a network", 0, r.quotes.calls.size)
+        r.quotes.put("A", QuoteState(com.marketsboard.data.quoteOf("A"), QuoteStatus.Stale(5 * 60_000L), 0L, null, false, 0L))
+        r.network.statusFlow.value = NetworkStatus.Online
+        r.network.back()
+        tick(900)
+        assertEquals(0, r.quotes.calls.size)
+        tick(200)
+        assertEquals(1, r.quotes.calls.size)
+        assertTrue("A is stale and B has nothing: both are retried", r.quotes.calls[0].symbols.containsAll(listOf("A", "B")))
+    }
+
+    @Test fun aBurstOfSignalsIsOnePass() = runTest {
+        val r = Rig(this)
+        r.quotes.onRefresh = { s, _ -> r.open(s) }
+        runCurrent()
+        tick(10_000)
+        r.quotes.put("B", QuoteState(null, QuoteStatus.Error(ErrorKind.Network), null, FetchResult.Err(ErrorKind.Network, "x")))
+        repeat(5) { r.network.back(); tick(100) }
+        tick(1_500)
+        assertEquals("one initial pass plus one answer to the whole burst", 2, r.quotes.calls.size)
     }
 
     @Test fun resumeAfterTheDeviceSleptAgesTheQuotesAndRefreshesAtOnce() = runTest {

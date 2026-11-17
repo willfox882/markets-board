@@ -24,6 +24,7 @@ import com.marketsboard.ui.markets.MarketsUiState
 import com.marketsboard.ui.news.NewsUiState
 import com.marketsboard.ui.settings.AboutInfo
 import com.marketsboard.ui.settings.SettingsUiState
+import com.marketsboard.ui.tools.ToolsUiState
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -41,6 +42,7 @@ class PaneRenderTest {
     @Before fun fonts() { loadDashFonts() }
 
     private val F = ScreenshotFixtures
+    private val T = ToolsFixtures
     private val moving = DrivingStatus(UiMode.Glance, DrivingReason.Moving, 62.0)
     private val parked = DrivingStatus(UiMode.Normal, DrivingReason.Parked, 0.0)
     private val passenger = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0)
@@ -52,7 +54,7 @@ class PaneRenderTest {
     private class Case(
         val name: String, val markets: MarketsUiState, val tab: MbTab = MbTab.Markets, val news: NewsUiState = NewsUiState(),
         val driving: DrivingStatus = DrivingStatus(UiMode.Normal, DrivingReason.Parked), val briefing: BriefingUiState = BriefingUiState(),
-        val settings: SettingsUiState = SettingsUiState(),
+        val settings: SettingsUiState = SettingsUiState(), val tools: ToolsUiState = ToolsUiState(), val offline: Boolean = false,
     )
 
     private fun settings(d: DrivingStatus, granted: Boolean = true) = SettingsUiState(driving = d, locationGranted = granted, speech = SpeakerAvailability.Available, about = about)
@@ -72,6 +74,18 @@ class PaneRenderTest {
         Case("settings", F.normal(), MbTab.Settings, driving = parked, settings = settings(parked)),
         Case("settings no permission", F.normal(), MbTab.Settings, driving = DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), settings = settings(DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), false)),
         Case("settings passenger", F.normal(), MbTab.Settings, driving = passenger, settings = settings(passenger).copy(settings = AppSettings(passengerMode = true))),
+        Case("settings main", F.normal(), MbTab.Settings, driving = parked, settings = settings(parked)),
+        Case("feeds", F.normal(), MbTab.Settings, tools = T.feeds(), settings = settings(parked)),
+        Case("feeds selected", F.normal(), MbTab.Settings, tools = T.feedsSelected(), settings = settings(parked)),
+        Case("feeds add", F.normal(), MbTab.Settings, tools = T.feedsAdd(), settings = settings(parked)),
+        Case("feeds add error", F.normal(), MbTab.Settings, tools = T.feedsAddError(), settings = settings(parked)),
+        Case("feeds confirm remove", F.normal(), MbTab.Settings, tools = T.feedsConfirmRemove(), settings = settings(parked)),
+        Case("feeds confirm reset", F.normal(), MbTab.Settings, tools = T.feedsConfirmReset(), settings = settings(parked)),
+        Case("feeds rename", F.normal(), MbTab.Settings, tools = T.feedsRename(), settings = settings(parked)),
+        Case("feeds read only", F.normal(), MbTab.Settings, tools = T.feedsReadOnly(), settings = settings(parked)),
+        Case("diagnostics", F.normal(), MbTab.Settings, tools = T.diagnostics(), settings = settings(parked)),
+        Case("diagnostics offline", F.normal(), MbTab.Settings, tools = T.diagnosticsOffline(), settings = settings(parked)),
+        Case("markets offline", T.offlineMarkets(), offline = true), Case("news offline", F.normal(), MbTab.News, F.newsStale(), offline = true),
         Case("glance", F.glance(), driving = moving), Case("glance two", F.normal(), driving = moving),
         Case("glance speaking", F.glance(), driving = moving, briefing = speaking), Case("glance preparing", F.glance(), driving = moving, briefing = preparing),
         Case("glance note", F.glance(), driving = moving, briefing = text),
@@ -94,7 +108,7 @@ class PaneRenderTest {
     }
 
     private fun render(c: Case, h: Int) = pixels(440, h) {
-        MarketsBoardRoot(c.markets, c.news, c.tab, mode = c.driving.mode, driving = c.driving, briefing = c.briefing, settings = c.settings)
+        MarketsBoardRoot(c.markets, c.news, c.tab, mode = c.driving.mode, driving = c.driving, briefing = c.briefing, settings = c.settings, tools = c.tools, offline = c.offline)
     }
 
     private fun isBg(px: Int) = abs(((px shr 16) and 0xFF) - 10) <= 3 && abs(((px shr 8) and 0xFF) - 10) <= 3 && abs((px and 0xFF) - 11) <= 3
@@ -132,7 +146,7 @@ class PaneRenderTest {
             val p = render(c, h)
             assertTrue("${c.name} at 440x$h looks blank", p.toSet().size > 6)
             // The dialog's scrim darkens everything, gutters included, so it is only checked for being drawn.
-            if (c.markets.confirmRemove == null) assertEquals("${c.name} at 440x$h draws into the side gutters", 0, gutterInk(p, 440, h))
+            if (c.markets.confirmRemove == null && c.tools.feeds.confirmRemove == null && !c.tools.feeds.confirmReset && c.tools.feeds.rename == null) assertEquals("${c.name} at 440x$h draws into the side gutters", 0, gutterInk(p, 440, h))
         }
     }
 

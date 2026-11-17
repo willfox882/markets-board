@@ -30,4 +30,7 @@ interface QuotesSource {
     fun ageShift(ms: Long)
 
     suspend fun forget(symbol: String)
+
+    /** Per-provider health for the diagnostics screen (default: none). */
+    fun providerHealth(): List<ProviderHealth> = emptyList()
 }

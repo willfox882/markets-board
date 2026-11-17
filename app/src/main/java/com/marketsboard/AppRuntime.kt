@@ -6,6 +6,7 @@ import com.marketsboard.core.DrivingGate
 import com.marketsboard.core.bind
 import com.marketsboard.data.Clock
 import com.marketsboard.refresh.ActiveGate
+import com.marketsboard.refresh.Connectivity
 import com.marketsboard.refresh.NetworkSignal
 import com.marketsboard.refresh.NewsPoller
 import com.marketsboard.refresh.RefreshController
@@ -17,6 +18,10 @@ import com.marketsboard.ui.news.NewsPresenter
 import com.marketsboard.ui.settings.AboutInfo
 import com.marketsboard.ui.settings.LocationAccess
 import com.marketsboard.ui.settings.SettingsPresenter
+import com.marketsboard.ui.tools.DiagnosticsPresenter
+import com.marketsboard.ui.tools.DiagnosticsSources
+import com.marketsboard.ui.tools.FeedsPresenter
+import com.marketsboard.ui.tools.ToolsPresenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -76,6 +81,22 @@ class AppRuntime(
     val newsPresenter = NewsPresenter(scope, graph.news, newsPoller, driving.mode, links)
 
     val settingsPresenter = SettingsPresenter(scope, graph.settingsStore, driving, location, speaker.availability, about, driving.mode)
+
+    /** One calm offline flag (no network, or every host failing for a network reason): drives the single amber line in the shell. */
+    val connectivity = Connectivity(scope, network, graph.news, graph.quotes, graph.watchlist.items.map { list -> list.map { it.symbol } })
+
+    /** Settings sub-pages: the news feed editor (over `feeds.json`) and the read-only diagnostics. Not driving-gated. */
+    val toolsPresenter = ToolsPresenter(
+        scope,
+        FeedsPresenter(scope, graph.feedStore, graph.watchlist.items),
+        DiagnosticsPresenter(
+            DiagnosticsSources(
+                graph.news.state, graph.feedStore.feeds, graph.quotes, graph.watchlist.items, graph.fetchLog.events,
+                network.status, connectivity.offline, driving.status, location.granted,
+            ),
+            clock,
+        ),
+    )
 
     /** "Brief me": allowed in both modes. Also the [com.marketsboard.briefing.BriefingTrigger] for the media key (and a future steering wheel hook). */
     val briefing = BriefingController(

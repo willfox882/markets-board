@@ -268,7 +268,8 @@ class FeedStore(private val file: File, private val clock: Clock = Clock.System)
     companion object {
         const val VERSION = 1
         const val MAX_FEEDS = 20
-        private const val MAX_NAME = 60
+        const val MAX_NAME_LENGTH = 60
+        private const val MAX_NAME = MAX_NAME_LENGTH
         private val PRETTY = Json { prettyPrint = true }
 
         fun cleanName(s: String): String = s.filter { !it.isISOControl() }.trim().replace(Regex("\\s+"), " ").take(MAX_NAME)

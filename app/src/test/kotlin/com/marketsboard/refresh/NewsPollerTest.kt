@@ -118,6 +118,7 @@ class NewsPollerTest {
         advanceTimeBy(10_000)
         up = true
         r.net.back()
+        advanceTimeBy(1_000) // bursts of signals are collapsed: the pass runs one settle time after the last one
         runCurrent()
         assertEquals("only the failed feed is retried", 3, r.calls)
         assertTrue(r.fetcher.urls.last().contains("/a.xml"))
@@ -174,5 +175,49 @@ class NewsPollerTest {
         advanceTimeBy(61_000)
         runCurrent()
         assertTrue("calls=${r.calls}", r.calls >= 2)
+    }
+
+    // ---- M5 connectivity ------------------------------------------------------------------------------------------------
+
+    @Test fun noAutomaticPassWhileOfflineAndTheReturnFetchesEverythingOnce() = runTest {
+        val r = rig(listOf(feed("a"), feed("b")))
+        r.net.statusFlow.value = NetworkStatus.Offline
+        r.gate.value = true
+        runCurrent()
+        advanceTimeBy(35 * 60_000L)
+        runCurrent()
+        assertEquals("no timeouts, no spinner storms while there is no network", 0, r.calls)
+        r.net.statusFlow.value = NetworkStatus.Online
+        r.net.back()
+        advanceTimeBy(900)
+        runCurrent()
+        assertEquals("not before the settle time", 0, r.calls)
+        advanceTimeBy(200)
+        runCurrent()
+        assertEquals("every feed is due again, not only failed ones", 2, r.calls)
+    }
+
+    @Test fun aBurstOfNetworkSignalsIsOnePass() = runTest {
+        val r = rig(listOf(feed("a")))
+        r.gate.value = true
+        runCurrent()
+        assertEquals(1, r.calls)
+        advanceTimeBy(70_000)
+        r.net.statusFlow.value = NetworkStatus.Online
+        repeat(4) { r.net.back(); advanceTimeBy(200); runCurrent() }
+        advanceTimeBy(1_500)
+        runCurrent()
+        assertTrue("calls=${r.calls}", r.calls <= 2)
+    }
+
+    @Test fun aSignalWhileStillOfflineDoesNothing() = runTest {
+        val r = rig()
+        r.net.statusFlow.value = NetworkStatus.Offline
+        r.gate.value = true
+        runCurrent()
+        r.net.back()
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(0, r.calls)
     }
 }

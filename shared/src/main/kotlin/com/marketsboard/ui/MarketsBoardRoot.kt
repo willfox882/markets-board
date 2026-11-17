@@ -48,6 +48,11 @@ import com.marketsboard.ui.news.NewsUiState
 import com.marketsboard.ui.settings.SettingsActions
 import com.marketsboard.ui.settings.SettingsScreen
 import com.marketsboard.ui.settings.SettingsUiState
+import com.marketsboard.ui.tools.DiagnosticsScreen
+import com.marketsboard.ui.tools.FeedsScreen
+import com.marketsboard.ui.tools.ToolsActions
+import com.marketsboard.ui.tools.ToolsPage
+import com.marketsboard.ui.tools.ToolsUiState
 
 enum class MbTab(val label: String) { Markets("MARKETS"), News("NEWS"), Settings("SETTINGS") }
 
@@ -74,6 +79,10 @@ fun MarketsBoardRoot(
     settings: SettingsUiState = SettingsUiState(),
     settingsActions: SettingsActions = SettingsActions.None,
     drivingActions: DrivingActions = DrivingActions.None,
+    tools: ToolsUiState = ToolsUiState(),
+    toolsActions: ToolsActions = ToolsActions.None,
+    /** No network (or every host unreachable): one amber line, last data, no error bands (see [OfflineView]). */
+    offline: Boolean = false,
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     val glance = mode == UiMode.Glance
@@ -86,8 +95,10 @@ fun MarketsBoardRoot(
         val pane = LocalPaneSpec.current
         Column(Modifier.fillMaxSize().background(Dash.bg)) {
             // Detail, the article and the add sheet are full-screen: the strip and tab bar step aside so their content is not cut off.
-            val fullScreen = !glance && ((shown == MbTab.Markets && (markets.detail != null || markets.add != null)) || (shown == MbTab.News && news.detail != null))
+            val fullScreen = !glance && ((shown == MbTab.Markets && (markets.detail != null || markets.add != null)) || (shown == MbTab.News && news.detail != null) ||
+                (shown == MbTab.Settings && tools.page == ToolsPage.Feeds && tools.feeds.add != null))
             if (!fullScreen || briefing.visible) TopStrip(glance, driving, briefing, briefingActions, pane)
+            if (offline && !glance && !fullScreen) OfflineLine(pane)
             AnimatedVisibility(
                 visible = !glance && briefing.visible,
                 enter = fadeIn(tween(200)) + expandVertically(tween(200)),
@@ -97,9 +108,16 @@ fun MarketsBoardRoot(
                 // No cross-fade: the outgoing tree must never stay on screen (or touchable) while the truck moves.
                 val m = if (glance) UiMode.Glance else UiMode.Normal
                 when (shown) {
-                    MbTab.Markets -> MarketsScreen(if (markets.mode == m) markets else markets.copy(mode = m), actions = actions, gpsUnknown = !glance && driving.unknown)
-                    MbTab.News -> NewsScreen(if (news.mode == m) news else news.copy(mode = m), actions = newsActions)
-                    MbTab.Settings -> SettingsScreen(if (settings.mode == m) settings else settings.copy(mode = m), actions = settingsActions)
+                    MbTab.Markets -> MarketsScreen(
+                        (if (markets.mode == m) markets else markets.copy(mode = m)).let { if (offline && !glance) OfflineView.markets(it) else it },
+                        actions = actions, gpsUnknown = !glance && driving.unknown,
+                    )
+                    MbTab.News -> NewsScreen((if (news.mode == m) news else news.copy(mode = m)).let { if (offline && !glance) OfflineView.news(it) else it }, actions = newsActions)
+                    MbTab.Settings -> when (tools.page) {
+                        ToolsPage.Main -> SettingsScreen(if (settings.mode == m) settings else settings.copy(mode = m), actions = settingsActions, tools = toolsActions)
+                        ToolsPage.Feeds -> FeedsScreen(tools.feeds, toolsActions)
+                        ToolsPage.Diagnostics -> DiagnosticsScreen(tools.diagnostics, onBack = toolsActions::onToolsBack)
+                    }
                 }
             }
             if (glance) Box(Modifier.animateContentSize(tween(220)).height(glanceLowerHeight(briefing, driving.parkedPrompt, pane))) {
@@ -125,6 +143,15 @@ fun MarketsBoardRoot(
                 }
             }
         }
+    }
+}
+
+/** The one amber line of the offline state: calm, one line, under the top strip. */
+@Composable
+private fun OfflineLine(pane: PaneSpec) {
+    Row(Modifier.fillMaxWidth().height(pane.pick(30, 26).dp).padding(horizontal = pane.pick(20, 16).dp), verticalAlignment = Alignment.CenterVertically) {
+        Dot(Dash.amber, 6)
+        Text(OfflineView.BANNER, color = Dash.amber, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 8.dp), maxLines = 1)
     }
 }
 

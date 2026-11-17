@@ -17,7 +17,15 @@ import com.marketsboard.data.repo.QuoteRepository
 import com.marketsboard.data.store.FileJsonCache
 import com.marketsboard.data.store.WatchlistStore
 import com.marketsboard.refresh.ActiveGate
+import com.marketsboard.refresh.Connectivity
 import com.marketsboard.refresh.NetworkSignal
+import com.marketsboard.refresh.NetworkStatus
+import com.marketsboard.data.net.FetchLog
+import com.marketsboard.data.net.LoggingHttpFetcher
+import com.marketsboard.ui.tools.DiagnosticsPresenter
+import com.marketsboard.ui.tools.DiagnosticsSources
+import com.marketsboard.ui.tools.FeedsPresenter
+import com.marketsboard.ui.tools.ToolsPresenter
 import com.marketsboard.refresh.NewsPollConfig
 import com.marketsboard.refresh.NewsPoller
 import com.marketsboard.refresh.RefreshConfig
@@ -133,7 +141,13 @@ class SandboxEnv(
 
     /** "The hotspot is back": fired at the end of a simulated drop, like the Android connectivity callback. */
     private val networkFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
-    val network: NetworkSignal = object : NetworkSignal { override val available: Flow<Unit> = networkFlow }
+
+    /** Whether the simulated unit has a network (the control panel's "Network" switch and the hotspot drop button flip it). */
+    val networkStatus = MutableStateFlow(NetworkStatus.Online)
+    val network: NetworkSignal = object : NetworkSignal {
+        override val available: Flow<Unit> = networkFlow
+        override val status: StateFlow<NetworkStatus> = networkStatus
+    }
 
     val controller = RefreshController(
         scope, quotes, watchlist.items.map { l -> l.map { it.symbol } }, gate.isActive, time.deviceClock,
@@ -143,10 +157,22 @@ class SandboxEnv(
 
     // ---- news: the real repository, poller and presenter against the fake news servers ----
     val newsFetcher = FakeFeedFetcher(time.trueClock)
+    val fetchLog = FetchLog()
     val feedStore = FeedStore(File(dir, "feeds.json"), time.deviceClock)
-    val news = NewsRepository(feedStore, watchlist.items, newsFetcher, cache, time.deviceClock)
+    val news = NewsRepository(feedStore, watchlist.items, LoggingHttpFetcher(newsFetcher, fetchLog, "news", time.deviceClock), cache, time.deviceClock)
     val newsPoller = NewsPoller(scope, news, feedStore, watchlist.items, gate.isActive, network, time.deviceClock, NewsPollConfig(timeScale = { time.speed }))
     val newsPresenter = NewsPresenter(scope, news, newsPoller, uiMode, com.marketsboard.ui.news.LinkOpener { url -> openUrl(url) })
+
+    /** The one calm offline flag (the shell's amber line) and the Settings sub-pages (feed editor, diagnostics). */
+    val connectivity = Connectivity(scope, network, news, quotes, watchlist.items.map { l -> l.map { it.symbol } })
+    val tools = ToolsPresenter(
+        scope,
+        FeedsPresenter(scope, feedStore, watchlist.items, io),
+        DiagnosticsPresenter(
+            DiagnosticsSources(news.state, feedStore.feeds, quotes, watchlist.items, fetchLog.events, networkStatus, connectivity.offline, driving.status, location.granted),
+            time.deviceClock,
+        ),
+    )
 
     // ---- settings and the spoken briefing (the speaker is a fake: no sound, a log and the caption) ----
     val speaker = FakeSpeaker(scope, speedUp = { time.speed })
@@ -178,22 +204,43 @@ class SandboxEnv(
     /** Seconds left of a simulated hotspot drop (0 when none). */
     val dropSecondsLeft: StateFlow<Int> = _dropSecondsLeft
 
-    /** Offline for [seconds], then back to whatever behaviour was selected. */
+    private var behaviorBeforeDrop: FakeBehavior? = null
+    private var newsBehaviorBeforeDrop: FakeNewsBehavior? = null
+
+    /**
+     * The hotspot drops or returns: while down the platform status is Offline (automatic polling stops) and both fakes refuse
+     * every request (a manual Refresh fails fast); when it returns the old behaviour is restored and the network signal fires.
+     */
+    fun setNetworkOnline(online: Boolean) {
+        if (!online) {
+            if (networkStatus.value == NetworkStatus.Offline) return
+            behaviorBeforeDrop = fake.behavior
+            newsBehaviorBeforeDrop = newsFetcher.behavior
+            fake.behavior = FakeBehavior.Offline
+            newsFetcher.behavior = FakeNewsBehavior.Offline
+            networkStatus.value = NetworkStatus.Offline
+        } else {
+            if (networkStatus.value != NetworkStatus.Offline) return
+            val before = behaviorBeforeDrop
+            val newsBefore = newsBehaviorBeforeDrop
+            if (fake.behavior == FakeBehavior.Offline) fake.behavior = if (before == null || before == FakeBehavior.Offline) FakeBehavior.Normal else before
+            if (newsFetcher.behavior == FakeNewsBehavior.Offline) newsFetcher.behavior = if (newsBefore == null || newsBefore == FakeNewsBehavior.Offline) FakeNewsBehavior.Normal else newsBefore
+            networkStatus.value = NetworkStatus.Online
+            networkFlow.tryEmit(Unit)
+        }
+    }
+
+    /** Offline for [seconds], then back (a simulated hotspot drop). */
     fun simulateHotspotDrop(seconds: Int) {
-        if (_dropSecondsLeft.value > 0) return
-        val before = fake.behavior
-        val newsBefore = newsFetcher.behavior
-        fake.behavior = FakeBehavior.Offline
-        newsFetcher.behavior = FakeNewsBehavior.Offline
+        if (_dropSecondsLeft.value > 0 || networkStatus.value == NetworkStatus.Offline) return
+        setNetworkOnline(false)
         controlScope.launch {
             for (left in seconds downTo 1) {
                 _dropSecondsLeft.value = left
                 delay(1_000)
             }
             _dropSecondsLeft.value = 0
-            if (fake.behavior == FakeBehavior.Offline) fake.behavior = if (before == FakeBehavior.Offline) FakeBehavior.Normal else before
-            if (newsFetcher.behavior == FakeNewsBehavior.Offline) newsFetcher.behavior = if (newsBefore == FakeNewsBehavior.Offline) FakeNewsBehavior.Normal else newsBefore
-            networkFlow.tryEmit(Unit)
+            setNetworkOnline(true)
         }
     }
 

@@ -33,6 +33,8 @@ class SplitClock(private val scheduler: TestCoroutineScheduler, private val wall
 class FakeNetwork : com.marketsboard.refresh.NetworkSignal {
     val flow = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 8)
     override val available: kotlinx.coroutines.flow.Flow<Unit> = flow
+    val statusFlow = kotlinx.coroutines.flow.MutableStateFlow(com.marketsboard.refresh.NetworkStatus.Unknown)
+    override val status: kotlinx.coroutines.flow.StateFlow<com.marketsboard.refresh.NetworkStatus> = statusFlow
     fun back() { flow.tryEmit(Unit) }
 }
 

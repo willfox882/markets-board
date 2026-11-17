@@ -83,10 +83,13 @@ class MainActivity : ComponentActivity() {
                         val briefing by runtime.briefing.state.collectAsState()
                         val settings by runtime.settingsPresenter.state.collectAsState()
                         val driving by runtime.driving.status.collectAsState()
+                        val tools by runtime.toolsPresenter.state.collectAsState()
+                        val offline by runtime.connectivity.offline.collectAsState()
                         MarketsBoardRoot(
                             state, news, actions = runtime.presenter, mode = driving.mode, newsActions = runtime.newsPresenter,
                             driving = driving, briefing = briefing, briefingActions = runtime.briefing,
                             settings = settings, settingsActions = runtime.settingsPresenter, drivingActions = runtime.drivingActions,
+                            tools = tools, toolsActions = runtime.toolsPresenter, offline = offline,
                         )
                     } else {
                         // The data layer could not start (storage unavailable): keep the shell alive, show nothing invented.

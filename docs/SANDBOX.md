@@ -22,7 +22,9 @@ The jar bundles the Windows and Linux Skia renderers only (no macOS), so it runs
   - **Speaker** (M4): Speech ok, No engine (text fallback), Error mid-way (engine dies halfway: text), Focus lost mid-way (another app takes the audio: stops with a note). The speaker is silent: the caption in the real UI and the "Speaker log" in the panel show what would be said. Time speed also speeds the speech.
   - **App active**: off pauses all refreshing exactly like a paused Activity.
   - **Time speed** x1 / x10 / x60: runs the data, ages, cooldowns and refresh delays faster, so the 60 s / 5 min policy and the stale timeouts can be watched in seconds.
-  - **Simulate hotspot drop (20 s)**: markets AND news go Offline for 20 s, then back to the selected behaviour, and the "network is back" signal fires (failed feeds and quotes retry at once).
+  - **Network** switch (M5): off = the unit has no network: the platform status is Offline (automatic polling stops), both fakes refuse requests, the app shows one amber "Offline, showing last data" line; on = the old behaviour returns, the "network is back" signal fires and everything refreshes within a couple of seconds.
+  - **Simulate hotspot drop (20 s)**: the same as the Network switch off for 20 s, then on again.
+  - Settings, **News feeds** and **Diagnostics** (M5) work against the temp-dir `feeds.json` and the real repositories (the diagnostics list the fake provider as "Fake").
   - **Reset watchlist to defaults**.
 - Add a symbol with the real search sheet: the fake catalogue knows the 16 suggestion symbols plus a few more; any other typed symbol still works through Done (the fake serves a quote for any symbol except ones starting with ZZZ, which are "not found").
 

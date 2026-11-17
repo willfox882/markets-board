@@ -60,6 +60,16 @@ data class FeedState(
     val retryInMs: Long = 0,
     /** The last answer was malformed and only partly readable. */
     val partial: Boolean = false,
+    /** Diagnostics: answers by kind since the process started (200 with items, 304 not modified, failures). */
+    val okCount: Int = 0,
+    val notModifiedCount: Int = 0,
+    val errorCount: Int = 0,
+    /** Time since the last failure, null when none. */
+    val lastErrorAgeMs: Long? = null,
+    /** Which conditional-GET validators the held copy has: "ETag", "Last-Modified", "ETag + Last-Modified" or "None". */
+    val validator: String = "None",
+    /** The last failure's wording, kept after a later success (the diagnostics screen shows history); [lastError] is cleared by a success. */
+    val lastErrorSeen: String? = null,
 )
 
 sealed interface NewsOverall {
