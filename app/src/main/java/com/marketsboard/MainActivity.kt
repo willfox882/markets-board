@@ -32,6 +32,7 @@ import com.marketsboard.ui.MarketsBoardTheme
 class MainActivity : ComponentActivity() {
     private var speed: LocationSpeedSource? = null
     private var askedThisRun = false
+    private var started = false
     private var permanentlyDenied = false
 
     private val permissionRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -39,7 +40,7 @@ class MainActivity : ComponentActivity() {
         app.location.refresh()
         if (app.location.granted.value) {
             permanentlyDenied = false
-            speed?.start()
+            if (app.runtime?.lockEnabled?.value == true) speed?.start()
         } else {
             // Denied is a normal state. When Android will not show the dialog again, the next request opens the settings page.
             permanentlyDenied = !shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -72,6 +73,8 @@ class MainActivity : ComponentActivity() {
         val runtime = (application as MarketsBoardApplication).runtime
         (application as MarketsBoardApplication).location.requester = { requestLocation() }
         speed = runtime?.let { rt -> LocationSpeedSource(this, { kmh, reliable -> rt.driving.onSpeed(kmh, reliable) }, { on -> rt.driving.setLocationOn(on) }) }
+        // The lock switch in Settings while the app is on screen: start the speed source (asking for the permission once per run) or stop it.
+        runtime?.onLockChanged = { if (started) applyLock() }
         setContent {
             MarketsBoardTheme {
                 CompositionLocalProvider(
@@ -113,11 +116,22 @@ class MainActivity : ComponentActivity() {
         app.location.refresh() // the user may have changed it in system settings
         app.runtime?.driving?.restart()
         app.runtime?.gate?.resume()
-        // GPS speed only while the Activity is started (no service). Ask once per run when it is missing.
+        started = true
+        applyLock()
+    }
+
+    /**
+     * GPS speed only while the Activity is started (no service) and only while the Driving lock setting is on: with the lock
+     * off the location is neither read nor requested. With the lock on, ask once per run when the permission is missing.
+     */
+    private fun applyLock() {
+        val app = application as MarketsBoardApplication
+        if (app.runtime?.lockEnabled?.value != true) { speed?.stop(); return }
         if (app.location.granted.value) speed?.start() else if (!askedThisRun) requestLocation()
     }
 
     override fun onStop() {
+        started = false
         speed?.stop() // the gate keeps a lock; a lost fix never unlocks it, and the next start checks again
         (application as MarketsBoardApplication).runtime?.gate?.pause()
         super.onStop()
@@ -126,6 +140,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         if (isFinishing) (application as MarketsBoardApplication).runtime?.speaker?.shutdown()
         (application as MarketsBoardApplication).location.requester = null
+        (application as MarketsBoardApplication).runtime?.onLockChanged = null
         super.onDestroy()
     }
 

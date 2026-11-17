@@ -25,7 +25,12 @@ import com.marketsboard.ui.tools.ToolsPresenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -33,7 +38,7 @@ import kotlinx.coroutines.launch
  * (not the Activity) so a recreated Activity keeps the same presenters; [gate] is flipped by the Activity from onResume and
  * onPause and pauses all refreshing (and any briefing) while the app is in the background.
  *
- * Driving safety: [driving] turns GPS speed samples (fed by the Activity's `LocationSpeedSource`) into the UI mode that
+ * Driving safety (only while the owner's "Driving lock" setting is on, default off): [driving] turns GPS speed samples (fed by the Activity's `LocationSpeedSource`) into the UI mode that
  * every presenter observes; the presenters, not the widgets, enforce the Glance contract. The 1 s tick below lets a lost fix
  * and the 10 s unlock timer be noticed without a new sample.
  */
@@ -50,11 +55,19 @@ class AppRuntime(
     /** Flipped by the Activity: [ActiveGate.resume] in onResume, [ActiveGate.pause] in onPause. Also gates the news poller and the briefing. */
     val gate = ActiveGate()
 
-    val driving = DrivingGate(clock, passenger = graph.settingsStore.settings.value.passengerMode, permission = location.granted.value)
+    val driving = DrivingGate(clock, passenger = graph.settingsStore.settings.value.passengerMode, permission = location.granted.value, lockEnabled = graph.settingsStore.settings.value.drivingLock)
         // Passenger mode is session only and expires after 10 minutes stopped: the switch follows the gate.
         .also { it.bind(scope, graph.settingsStore.settings, location.granted) { graph.settingsStore.update { s -> s.copy(passengerMode = false) } } }
 
+    /** The "Driving lock" setting. With it off the GPS is never requested or read. */
+    val lockEnabled: StateFlow<Boolean> = graph.settingsStore.settings.map { it.drivingLock }.distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Eagerly, graph.settingsStore.settings.value.drivingLock)
+
+    /** Set by the Activity: called on the main thread each time the setting changes while the app runs (start or stop the speed source, ask for the permission). */
+    @Volatile var onLockChanged: ((Boolean) -> Unit)? = null
+
     init {
+        scope.launch { lockEnabled.drop(1).collect { onLockChanged?.invoke(it) } }
         scope.launch { while (true) { delay(1_000); driving.tick() } }
         // The first run (or a recovery) creates settings.json: off the main thread.
         scope.launch(Dispatchers.IO) { graph.settingsStore.flush() }

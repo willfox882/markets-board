@@ -28,7 +28,7 @@ class SandboxNewsEnvTest {
     private fun env(block: suspend (SandboxEnv) -> Any?) {
         runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            try { block(SandboxEnv(scope)) } finally { scope.cancel() }
+            try { block(SandboxEnv(scope, drivingLock = true)) } finally { scope.cancel() }
         }
     }
 

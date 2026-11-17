@@ -41,8 +41,8 @@ private val DATA_SOURCES = listOf(
 )
 
 /**
- * The Settings tab: hairline rows, no colour except amber warnings. Sections: Driving (passenger switch, how the lock works,
- * the gate's live status and reason, the permission action), Briefing, About. Stateless: [state] in, [actions] out.
+ * The Settings tab: hairline rows, no colour except amber warnings. Sections: Driving (the Driving lock switch, off by default; with it on:
+ * passenger switch, how the lock works, the gate's live status and reason, the permission action), Briefing, About. Stateless: [state] in, [actions] out.
  */
 @Composable
 fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, actions: SettingsActions = SettingsActions.None, tools: ToolsActions = ToolsActions.None) {
@@ -59,33 +59,45 @@ fun SettingsScreen(state: SettingsUiState, modifier: Modifier = Modifier, action
             Column {
                 Hairline(Modifier.padding(top = 4.dp))
                 SwitchRow(
-                    "Passenger mode", s.passengerMode, actions::onPassengerMode,
-                    subtitle = "Keep the full dashboard while the truck moves",
+                    "Driving lock", s.drivingLock, actions::onDrivingLock,
+                    subtitle = "Hides editing and detail above 5 km/h, until stopped for 10 s", wrap = true,
                 )
                 Hairline()
-                ValueRow("Status", DrivingTexts.statusValue(d), valueColor = if (d.unknown || !state.locationGranted) Dash.amber else Dash.dim)
-                Hairline()
-                ValueRow("Speed", if (state.locationGranted) DrivingTexts.speed(d) else "Location is off")
-                Hairline()
-                val why = DrivingTexts.reason(if (!state.locationGranted && d.reason != DrivingReason.Passenger) DrivingReason.PermissionMissing else d.reason)
-                if (why != DrivingTexts.statusValue(d)) {
+                if (!s.drivingLock) {
                     Text(
-                        why, color = if (d.unknown || !state.locationGranted) Dash.amber else Dash.dim, fontSize = 14.sp, lineHeight = 19.sp,
-                        fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = pane.pick(12, 8).dp),
+                        "The lock is off: everything stays available at any speed, and the app does not use the GPS. The briefing works at any speed.",
+                        color = Dash.dim, fontSize = 13.sp, lineHeight = pane.pick(19, 18).sp, modifier = Modifier.padding(top = pane.pick(12, 8).dp),
                     )
-                }
-                Text(
-                    "Above 5 km/h Markets Board shows only names, prices and the top headlines, and this screen is locked. " +
-                        "It opens again after 10 seconds at a stop, so a red light does not unlock it. If the GPS signal drops while you are moving, it stays locked. " +
-                        "The briefing works at any speed.",
-                    color = Dash.dim, fontSize = 13.sp, lineHeight = pane.pick(19, 18).sp, modifier = Modifier.padding(top = pane.pick(8, 6).dp),
-                )
-                if (!state.locationGranted) {
+                } else {
+                    SwitchRow(
+                        "Passenger mode", s.passengerMode, actions::onPassengerMode,
+                        subtitle = "Keep the full dashboard while the truck moves",
+                    )
+                    Hairline()
+                    ValueRow("Status", DrivingTexts.statusValue(d), valueColor = if (d.unknown || !state.locationGranted) Dash.amber else Dash.dim)
+                    Hairline()
+                    ValueRow("Speed", if (state.locationGranted) DrivingTexts.speed(d) else "Location is off")
+                    Hairline()
+                    val why = DrivingTexts.reason(if (!state.locationGranted && d.reason != DrivingReason.Passenger) DrivingReason.PermissionMissing else d.reason)
+                    if (why != DrivingTexts.statusValue(d)) {
+                        Text(
+                            why, color = if (d.unknown || !state.locationGranted) Dash.amber else Dash.dim, fontSize = 14.sp, lineHeight = 19.sp,
+                            fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = pane.pick(12, 8).dp),
+                        )
+                    }
                     Text(
-                        "Without location access the app cannot tell when the truck moves, so it never locks.",
-                        color = Dash.amber, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 10.dp),
+                        "Above 5 km/h Markets Board shows only names, prices and the top headlines, and this screen is locked. " +
+                            "It opens again after 10 seconds at a stop, so a red light does not unlock it. If the GPS signal drops while you are moving, it stays locked. " +
+                            "The briefing works at any speed.",
+                        color = Dash.dim, fontSize = 13.sp, lineHeight = pane.pick(19, 18).sp, modifier = Modifier.padding(top = pane.pick(8, 6).dp),
                     )
-                    PillButton("Grant location permission", actions::onGrantLocation, Modifier.fillMaxWidth().padding(top = 14.dp), kind = PillKind.Secondary)
+                    if (!state.locationGranted) {
+                        Text(
+                            "Without location access the app cannot tell when the truck moves, so it never locks.",
+                            color = Dash.amber, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 10.dp),
+                        )
+                        PillButton("Grant location permission", actions::onGrantLocation, Modifier.fillMaxWidth().padding(top = 14.dp), kind = PillKind.Secondary)
+                    }
                 }
             }
         }

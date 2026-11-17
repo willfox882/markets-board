@@ -98,6 +98,8 @@ class SandboxEnv(
     gateClock: Clock = Clock.System,
     /** Feed the gate from the control panel's speed and GPS toggles every second. Tests turn it off and call [feed] themselves. */
     autoFeed: Boolean = true,
+    /** The "Driving lock" setting at start (the real default is off; tests that need the gate to lock pass true). */
+    drivingLock: Boolean = false,
 ) {
     val time = SandboxTime()
     val fake = FakeMarketDataProvider(time.trueClock)
@@ -113,7 +115,7 @@ class SandboxEnv(
     val gate = ActiveGate(initial = true)
 
     // ---- driving: the real gate, fed by the control panel instead of a GPS ----
-    val settingsStore = AppSettingsStore(File(dir, "settings.json"), time.deviceClock)
+    val settingsStore = AppSettingsStore(File(dir, "settings.json"), time.deviceClock).also { if (drivingLock) it.update { s -> s.copy(drivingLock = true) } }
 
     /** The location permission toggle of the control panel ("no permission" = false). */
     val location = SandboxLocation()

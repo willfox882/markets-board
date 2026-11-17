@@ -49,11 +49,11 @@
 - `.../ui/news/NewsMapper.kt`: pure `NewsState` to `NewsUiState` (filter, glance top 3, banner and stale rules, "3h ago", detail with the published time in the device zone).
 - `.../ui/news/NewsPresenter.kt`: `StateFlow<NewsUiState>` from the repository (`NewsSource`) + filter/open-article navigation + `UiMode` + a 30 s tick for the ages; glance closes an open article.
 - `.../ui/news/NewsScreen.kt`: News tab: header + status line, amber banner with Retry, All / My symbols switch, hairline headline rows (source, age, tags, 3-line title, 2-line summary), skeletons, empty and error states, glance rows, and the article detail with the Open article button (`LocalOpenUrl`).
-- `.../ui/settings/SettingsScreen.kt`: the Settings tab (Driving: passenger switch, lock explanation, live status and reason, Grant location permission; Briefing: voice, speech rate stepper, headlines, media key, engine status; About: version, build, data sources, "Markets data may be delayed").
+- `.../ui/settings/SettingsScreen.kt`: the Settings tab (Driving: the "Driving lock" switch (off by default); with it on: passenger switch, lock explanation, live status and reason, Grant location permission; with it off one dim line; Briefing: voice, speech rate stepper, headlines, media key, engine status; About: version, build, data sources, "Markets data may be delayed").
 - `.../ui/settings/SettingsUi.kt`: `SettingsUiState`, `SettingsActions`, `AboutInfo`, `LocationAccess` (platform permission hook).
-- `.../ui/settings/SettingsPresenter.kt`: Settings state over `AppSettingsStore` + `DrivingGate` status; every action blocked in Glance.
+- `.../ui/settings/SettingsPresenter.kt`: Settings state over `AppSettingsStore` + `DrivingGate` status; every action (incl. `onDrivingLock`) blocked in Glance.
 - `.../ui/briefing/BriefingUi.kt`: `BriefingBand` (Normal caption under the top strip), `GlanceLower` (big Brief me / caption + Stop in Glance), `BigPill`.
-- `.../core/DrivingGate.kt`: the safety gate (speed samples to `UiMode` + `DrivingReason`), `DrivingStatus`, `DrivingConfig`, `DrivingTexts`, `DrivingGate.bind`.
+- `.../core/DrivingGate.kt`: the safety gate (speed samples to `UiMode` + `DrivingReason`), `DrivingStatus`, `DrivingConfig`, `DrivingTexts`, `DrivingGate.bind`; `lockEnabled` / `setLockEnabled` is where the "Driving lock" setting is applied (off: always Normal, `DrivingReason.LockOff`).
 - `.../core/SpeedSamples.kt`: pure conversion of one GPS fix (speed, age, accuracy) into a km/h sample or null.
 - `.../speech/SpeechMachine.kt`: the pure generation, focus and engine-lifecycle logic of the speaker (`SpeechPlatform` is what Android provides); `AndroidSpeaker` is a thin adapter.
 - `.../ui/DrivingUi.kt`: `DrivingActions` (the 3 s "I am parked" hold).
@@ -62,7 +62,7 @@
 - `.../briefing/LiveBriefingSource.kt`: `BriefingSource` over `MarketsData` and `NewsSource`.
 - `.../briefing/BriefingTrigger.kt`: `BriefingTrigger` + `TriggerSource` (button, media key, future steering wheel).
 - `.../data/settings/JsonFileStore.kt`: shared atomic versioned JSON file pattern (fsync, rename, backup, quarantine, newer version read-only).
-- `.../data/settings/AppSettingsStore.kt`: `AppSettings` and `settings.json` v1 (passenger, voice, rate 0.8 to 1.2, headlines, media key).
+- `.../data/settings/AppSettingsStore.kt`: `AppSettings` and `settings.json` v1 (driving lock (default off, missing key = off), voice, rate 0.8 to 1.2, headlines, media key; passenger is session only).
 - `.../data/settings/BriefingHistoryStore.kt`: `BriefingHistory` and `briefing-history.json` (ids of headlines already read, newest 300).
 - `.../data/Clock.kt`: injectable clock: wall `nowMs` (persisted times, skew detection) and monotonic `monoMs` (in-process ages, throttling, cooldowns); never used for market timestamps.
 - `.../data/model/Models.kt`: `Instrument`, `WatchItem`, `ChartRange` (+ Yahoo range/interval), `SeriesPoint`, `Quote` (provider-time `asOfEpochMs`, `source`, session window, timezone, `priceHint`/`decimals`), `Currencies` (GBp to GBX etc), `ErrorKind` (incl. `ClockOrTls`), `FetchResult` (Ok/Err), `QuoteValidator` (price/series sanity rules).
@@ -95,9 +95,9 @@
 ## app/ (Android)
 - `app/build.gradle.kts`: Android module, shared srcDir + font res.
 - `app/src/main/AndroidManifest.xml`: INTERNET, ACCESS_NETWORK_STATE, ACCESS_FINE/COARSE_LOCATION (foreground only), gps `uses-feature` not required, `<queries>` for the TTS service, resizable activity (multi-window allowed, orientation unspecified, `adjustResize`).
-- `app/src/main/java/com/marketsboard/MainActivity.kt`: immersive, keep-screen-on, sets fonts, provides `LocalBackHook`, shows the root with the presenters' states, provides `LocalOpenUrl` (ACTION_VIEW in try/catch, http(s) only), sets `active` from onResume/onPause, runs the location permission request, starts and stops `LocationSpeedSource`, handles the media play/pause and headset hook keys.
+- `app/src/main/java/com/marketsboard/MainActivity.kt`: immersive, keep-screen-on, sets fonts, provides `LocalBackHook`, shows the root with the presenters' states, provides `LocalOpenUrl` (ACTION_VIEW in try/catch, http(s) only), sets `active` from onResume/onPause, runs the location permission request, starts and stops `LocationSpeedSource` only while the Driving lock setting is on (`applyLock`), handles the media play/pause and headset hook keys.
 - `app/src/main/java/com/marketsboard/AppGraph.kt`: hand-built dependency graph (fetcher, log, providers, cache in `filesDir/cache`, `WatchlistStore` in `filesDir/watchlist.json`, `QuoteRepository`, `MarketsData`, plus `FeedStore` in `filesDir/feeds.json` and `NewsRepository` on the same cache); takes a `File`, so it is JVM-testable.
-- `app/src/main/java/com/marketsboard/AppRuntime.kt`: process-scoped `RefreshController` + presenters, `DrivingGate` (+ 1 s tick), `SettingsPresenter`, `BriefingController` on top of the graph; its `ActiveGate` is flipped by the Activity.
+- `app/src/main/java/com/marketsboard/AppRuntime.kt`: process-scoped `RefreshController` + presenters, `DrivingGate` (+ 1 s tick; `lockEnabled` flow and `onLockChanged` hook for the Activity), `SettingsPresenter`, `BriefingController` on top of the graph; its `ActiveGate` is flipped by the Activity.
 - `app/src/main/java/com/marketsboard/LocationSpeedSource.kt`: GPS provider at 1 Hz between onResume and onPause (no service), fixes to samples through `SpeedSamples`, nothing stored or logged.
 - `app/src/main/java/com/marketsboard/AndroidLocationAccess.kt`: location permission state + request hook for the Activity.
 - `app/src/main/java/com/marketsboard/AndroidSpeaker.kt`: `TextToSpeech` en-CA then en-US, assistant/speech audio attributes, may-duck audio focus, generation-tagged callbacks, failure states, shutdown.
@@ -124,9 +124,9 @@
 - `sandbox/run-sandbox.bat`: Windows launcher for the jar.
 - `sandbox/src/main/kotlin/com/marketsboard/sandbox/Main.kt`: window entry point.
 - `.../sandbox/SandboxApp.kt`: 9:16 head-unit frame running the real presenter and UI + control panel.
-- `.../sandbox/SandboxEnv.kt`: also the real `DrivingGate` fed from the panel (speed, GPS lost, no permission), `SettingsPresenter`, `BriefingController` on `FakeSpeaker`; real presenter, controller, repository and temp-dir watchlist on the fake provider, plus the real news repository, poller and presenter on `FakeFeedFetcher`, a simulated "network is back" signal and `openUrl` recording; `SandboxTime` (speed-up, device clock skew), hotspot drop, watchlist reset.
+- `.../sandbox/SandboxEnv.kt`: also the real `DrivingGate` fed from the panel (speed, GPS lost, no permission; `drivingLock` constructor flag, default off like the app), `SettingsPresenter`, `BriefingController` on `FakeSpeaker`; real presenter, controller, repository and temp-dir watchlist on the fake provider, plus the real news repository, poller and presenter on `FakeFeedFetcher`, a simulated "network is back" signal and `openUrl` recording; `SandboxTime` (speed-up, device clock skew), hotspot drop, watchlist reset.
 - `.../sandbox/PaneShape.kt`: the pane shapes (Full 9:16, Top / bottom half 9:8, Short strip 3:2) with their screenshot sizes.
-- `.../sandbox/ControlPanel.kt`: panel in the app's own style (pane shape and height slider, behaviour, latency, clock skew, speed slider, GPS lost, no permission, passenger, speaker modes and log, app active, time speed, hotspot drop, reset).
+- `.../sandbox/ControlPanel.kt`: panel in the app's own style (pane shape and height slider, behaviour, latency, clock skew, Driving lock switch, speed slider, GPS lost, no permission, passenger, speaker modes and log, app active, time speed, hotspot drop, reset).
 - `.../sandbox/FakeSpeaker.kt`: no-sound `Speaker` for the sandbox (timing from the text, modes Ok, Unavailable, ErrorMidway, FocusLost, a log of the sentences).
 - `.../sandbox/ToolsFixtures.kt`: deterministic feed editor, diagnostics and offline states.
 - `.../sandbox/ScreenshotFixtures.kt`: deterministic Markets states (fake provider at a fixed time through `UiMapper`) for screenshots and render tests.
@@ -145,6 +145,7 @@
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/FakeMarketDataProviderTest.kt`: fake provider behaviours.
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/DrivingRenderTest.kt`: M4 screens at 440 dp (gutters, palette, six Glance rows plus caption on a 782 dp screen) and tap tests (only the briefing control and the two tabs respond while driving; the Settings tab is dead).
 - `sandbox/src/test/kotlin/com/marketsboard/sandbox/SandboxDrivingEnvTest.kt`: real gate, presenters, briefing and stores end to end with a manual gate clock and the fake speaker.
+- `app/src/test/kotlin/com/marketsboard/core/DrivingLockSettingTest.kt`: the Driving lock setting (default off, persistence, v1 file without the key, off means Normal at any speed and no nag, switching on re-engages, `bind`, presenter switch and its Glance guard).
 - `app/src/test/kotlin/com/marketsboard/core/DrivingGateTest.kt`, `core/SpeedSamplesTest.kt`: the gate (boundaries, jitter, tunnels, bad samples, passenger, permission, clock jumps, randomised sequences against a reference model) and the GPS fix conversion.
 - `app/src/test/kotlin/com/marketsboard/ui/GlanceContractTest.kt`: the Glance contract (every presenter action enumerated through the `GlanceRules.kt` enums, blocked ones change/write/fetch nothing; overlays close, drafts kept in memory; source scan that every action is guarded).
 - `app/src/test/kotlin/com/marketsboard/briefing/BriefingControllerTest.kt` (with `TestSpeaker`), `data/settings/AppSettingsStoreTest.kt`: briefing flow and the two new stores.

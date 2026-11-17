@@ -34,7 +34,7 @@ class MultiWindowTest {
 
     private fun body(fn: String): String {
         val src = activity
-        val start = src.indexOf("override fun $fn(")
+        val start = src.indexOf("fun $fn(")
         assertTrue("$fn not found", start >= 0)
         val end = src.indexOf("\n    }\n", start)
         return src.substring(start, end)
@@ -42,8 +42,14 @@ class MultiWindowTest {
 
     @Test fun speedTrackingAndTheGateFollowStartAndStop() {
         val start = body("onStart")
-        assertTrue(start.contains("speed?.start()"))
+        assertTrue(start.contains("applyLock()"))
         assertTrue(start.contains("gate?.resume()"))
+        // The speed source starts only while the Driving lock setting is on (with the lock off the location is never read or requested).
+        val apply = body("applyLock")
+        assertTrue(apply.contains("lockEnabled?.value != true"))
+        assertTrue(apply.contains("speed?.start()"))
+        assertTrue(apply.indexOf("lockEnabled") < apply.indexOf("speed?.start()"))
+        assertTrue(apply.indexOf("lockEnabled") < apply.indexOf("requestLocation()"))
         val stop = body("onStop")
         assertTrue(stop.contains("speed?.stop()"))
         assertTrue(stop.contains("gate?.pause()"))

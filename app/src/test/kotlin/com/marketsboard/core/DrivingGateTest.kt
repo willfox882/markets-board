@@ -13,7 +13,7 @@ import org.junit.Test
 class DrivingGateTest {
     private class Rig(passenger: Boolean = false, permission: Boolean = true, settled: Boolean = true) {
         val clock = FakeClock()
-        val gate = DrivingGate(clock, passenger = passenger, permission = permission)
+        val gate = DrivingGate(clock, passenger = passenger, permission = permission, lockEnabled = true)
         val mode get() = gate.mode.value
         val reason get() = gate.status.value.reason
 

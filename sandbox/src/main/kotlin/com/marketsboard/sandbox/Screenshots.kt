@@ -91,12 +91,12 @@ fun main(args: Array<String>) {
     shot("markets_glance", F.glance(), driving = moving)
     shot("markets_glance_two", F.normal().copy(mode = UiMode.Glance), driving = moving)
     shot("news_glance", F.glance(), MbTab.News, F.newsGlance(), driving = moving)
-    shot("settings_parked", F.normal(), MbTab.Settings, settings = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.1.0", "debug 1")))
+    shot("settings_parked", F.normal(), MbTab.Settings, settings = SettingsUiState(settings = AppSettings(drivingLock = true), driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.1.0", "debug 1")))
     shot("settings_permission_missing", F.normal(), MbTab.Settings, settings = SettingsUiState(
-        driving = DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), locationGranted = false, about = AboutInfo("0.1.0", "debug 1"),
+        settings = AppSettings(drivingLock = true), driving = DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), locationGranted = false, about = AboutInfo("0.1.0", "debug 1"),
     ))
     shot("settings_passenger", F.normal(), MbTab.Settings, driving = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0), settings = SettingsUiState(
-        settings = AppSettings(passengerMode = true), driving = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0), about = AboutInfo("0.1.0", "debug 1"),
+        settings = AppSettings(drivingLock = true, passengerMode = true), driving = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0), about = AboutInfo("0.1.0", "debug 1"),
     ))
     shot("briefing_normal_speaking", F.normal(), driving = parked, briefing = speaking)
     shot("briefing_normal_preparing", F.normal(), driving = parked, briefing = BriefingUiState(BriefingPhase.Preparing))
@@ -112,7 +112,8 @@ fun main(args: Array<String>) {
 
     // ---- M5: feed editor, diagnostics, offline ----
     val T = ToolsFixtures
-    val settingsParked = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.6.0", "debug 1"))
+    // The real default: the Driving lock is OFF (settings_main). The lock-on Settings are settings_parked, settings_permission_missing and settings_passenger.
+    val settingsParked = SettingsUiState(driving = DrivingStatus(UiMode.Normal, DrivingReason.LockOff), speech = SpeakerAvailability.Available, about = AboutInfo("0.6.0", "debug 1"))
     shot("feeds", F.normal(), MbTab.Settings, tools = T.feeds(), settings = settingsParked)
     shot("feeds_selected", F.normal(), MbTab.Settings, tools = T.feedsSelected(), settings = settingsParked)
     shot("feeds_add", F.normal(), MbTab.Settings, tools = T.feedsAdd(), settings = settingsParked)
@@ -142,7 +143,7 @@ fun main(args: Array<String>) {
         p("news", F.normal(), MbTab.News, F.news())
         p("news_detail", F.normal(), MbTab.News, F.newsDetail())
         p("news_stale", F.normal(), MbTab.News, F.newsStale())
-        p("settings", F.normal(), MbTab.Settings, settings = SettingsUiState(driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.1.0", "debug 1")))
+        p("settings", F.normal(), MbTab.Settings, settings = SettingsUiState(settings = AppSettings(drivingLock = true), driving = parked, speech = SpeakerAvailability.Available, about = AboutInfo("0.1.0", "debug 1")))
         p("feeds", F.normal(), MbTab.Settings, tools = T.feeds(), settings = settingsParked)
         p("feeds_selected", F.normal(), MbTab.Settings, tools = T.feedsSelected(), settings = settingsParked)
         p("feeds_add", F.normal(), MbTab.Settings, tools = T.feedsAdd(), settings = settingsParked)

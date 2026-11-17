@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -223,9 +224,12 @@ fun Skeleton(width: Dp, height: Dp, modifier: Modifier = Modifier) {
 
 /** Settings-style row: title + optional subtitle on the left, a switch on the right. 68 dp tall for bumpy-road use. */
 @Composable
-fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, subtitle: String = "") {
+fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, subtitle: String = "", wrap: Boolean = false) {
     val pane = LocalPaneSpec.current
-    Row(modifier.fillMaxWidth().height(pane.pick(68, 58, 54).dp), verticalAlignment = Alignment.CenterVertically) {
+    // Fixed height as always, except for [wrap] rows: a helper line that needs a second line makes the row grow instead of clipping it.
+    val base = pane.pick(68, 58, 54).dp
+    val rowMod = if (wrap) modifier.fillMaxWidth().heightIn(min = base).padding(vertical = 6.dp) else modifier.fillMaxWidth().height(base)
+    Row(rowMod, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 16.dp)) {
             Text(title, color = Dash.text, fontSize = pane.pick(17, 16).sp, fontWeight = FontWeight.Medium)
             if (subtitle.isNotEmpty()) Text(subtitle, color = Dash.dim, fontSize = pane.pick(13, 12).sp, maxLines = pane.pick(3, 2), overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))

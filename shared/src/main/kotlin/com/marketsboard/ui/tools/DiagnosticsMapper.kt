@@ -209,14 +209,20 @@ object DiagnosticsMapper {
         )
     }
 
-    private fun speed(i: DiagnosticsInput): DiagSection = DiagSection(
+    private fun speed(i: DiagnosticsInput): DiagSection {
+        // With the driving lock off the speed source is not running and the permission is not needed: nothing to warn about.
+        val lockOn = i.driving.reason != DrivingReason.LockOff
+        return speedSection(i, lockOn)
+    }
+
+    private fun speedSection(i: DiagnosticsInput, lockOn: Boolean): DiagSection = DiagSection(
         "Speed source",
         listOf(
             DiagItem(
                 lines = listOf(
-                    DiagLine("Status", DrivingTexts.statusValue(i.driving), warn = !i.locationGranted || DrivingTexts.statusValue(i.driving) == "Unknown"),
-                    DiagLine("Location permission", if (i.locationGranted) "Granted" else "Missing", warn = !i.locationGranted),
-                    DiagLine("Detail", DrivingTexts.reason(if (!i.locationGranted) DrivingReason.PermissionMissing else i.driving.reason)),
+                    DiagLine("Status", DrivingTexts.statusValue(i.driving), warn = (lockOn && !i.locationGranted) || DrivingTexts.statusValue(i.driving) == "Unknown"),
+                    DiagLine("Location permission", if (i.locationGranted) "Granted" else if (lockOn) "Missing" else "Not needed", warn = lockOn && !i.locationGranted),
+                    DiagLine("Detail", DrivingTexts.reason(if (lockOn && !i.locationGranted) DrivingReason.PermissionMissing else i.driving.reason)),
                     DiagLine("Privacy", "Only the speed is used. Position is never shown, stored or logged"),
                 ),
             ),

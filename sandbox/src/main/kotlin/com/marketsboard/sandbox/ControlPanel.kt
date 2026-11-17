@@ -108,6 +108,10 @@ fun ControlPanel(env: SandboxEnv, modifier: Modifier = Modifier, ratio: Float = 
         SwitchRow("Clock skew", skew, { skew = it; env.time.deviceSkewMs = if (it) -45 * 60_000L else 0L }, subtitle = "Device clock 45 min behind the data")
         Hairline()
         Label("Driving: ${speedKmh.toInt()} km/h")
+        SwitchRow(
+            "Driving lock", settings.drivingLock, { on -> env.settingsStore.update { it.copy(drivingLock = on, passengerMode = it.passengerMode && on) } },
+            subtitle = "Off by default: Normal at any speed. Also in Settings (blocked while locked)",
+        )
         Slider(
             value = speedKmh.toFloat(), onValueChange = { env.driveAt(it.toDouble().let { v -> Math.round(v).toDouble() }) }, valueRange = 0f..130f,
             colors = SliderDefaults.colors(thumbColor = Dash.text, activeTrackColor = Dash.text, inactiveTrackColor = Dash.line),

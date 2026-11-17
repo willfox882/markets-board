@@ -33,5 +33,5 @@ enum class NewsAct(val glance: GlanceRule = GlanceRule.Blocked) {
 
 /** Every action of [com.marketsboard.ui.settings.SettingsPresenter]: the Settings tab is unreachable while driving, so all are blocked. */
 enum class SettingsAct(val glance: GlanceRule = GlanceRule.Blocked) {
-    SetPassenger, SetVoice, SetSpeechRate, SetIncludeNews, SetMediaKey, RequestLocation,
+    SetDrivingLock, SetPassenger, SetVoice, SetSpeechRate, SetIncludeNews, SetMediaKey, RequestLocation,
 }

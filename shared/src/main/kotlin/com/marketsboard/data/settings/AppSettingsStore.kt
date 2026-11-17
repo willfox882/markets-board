@@ -21,6 +21,8 @@ import kotlinx.serialization.json.put
 data class AppSettings(
     /** Passenger mode: the full dashboard stays available while the truck moves. SESSION ONLY: never written to disk, so a cold start is always off (the gate also switches it off after 10 minutes stopped). */
     val passengerMode: Boolean = false,
+    /** Driving lock: above 5 km/h the app switches to the minimal Glance view (the DrivingGate rules). OFF by default: the UI is always Normal and the GPS is not used. */
+    val drivingLock: Boolean = false,
     /** Speak the briefing. Off: "Brief me" shows it as text. */
     val voiceEnabled: Boolean = true,
     /** TTS speech rate, 0.8 to 1.2 in steps of 0.05. */
@@ -105,6 +107,7 @@ class AppSettingsStore(file: File, clock: Clock = Clock.System) {
         return AppSettings(
             passengerMode = false, // session only: a stored value (older file, hand edit) is ignored
             voiceEnabled = bool("voiceEnabled", d.voiceEnabled),
+            drivingLock = bool("drivingLock", d.drivingLock), // a missing key (a file from before 0.6.1) means off
             speechRate = o.num("speechRate")?.toFloat() ?: d.speechRate,
             includeNews = bool("includeNews", d.includeNews),
             mediaKeyTrigger = bool("mediaKeyTrigger", d.mediaKeyTrigger),
@@ -119,6 +122,7 @@ class AppSettingsStore(file: File, clock: Clock = Clock.System) {
             JsonObject.serializer(),
             buildJsonObject {
                 put("version", VERSION)
+                put("drivingLock", s.drivingLock)
                 put("voiceEnabled", s.voiceEnabled)
                 put("speechRate", s.speechRate.toDouble())
                 put("includeNews", s.includeNews)

@@ -34,7 +34,7 @@ class SandboxDrivingEnvTest {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val clock = ManualClock()
             try {
-                val e = SandboxEnv(scope, gateClock = clock, autoFeed = false)
+                val e = SandboxEnv(scope, gateClock = clock, autoFeed = false, drivingLock = true)
                 e.driveAt(0.0) // the first stopped fix ends the gate's Checking phase
                 block(e, clock)
             } finally { scope.cancel() }
@@ -131,7 +131,7 @@ class SandboxParkadeEnvTest {
         runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val clock = ManualClock()
-            try { block(SandboxEnv(scope, gateClock = clock, autoFeed = false), clock) } finally { scope.cancel() }
+            try { block(SandboxEnv(scope, gateClock = clock, autoFeed = false, drivingLock = true), clock) } finally { scope.cancel() }
         }
     }
 
@@ -168,5 +168,46 @@ class SandboxParkadeEnvTest {
         delay(300)
         assertTrue("the switch followed the gate", !e.settingsStore.settings.value.passengerMode)
         assertEquals(DrivingReason.Parked, e.driving.status.value.reason)
+    }
+
+    // ---- the Driving lock setting (0.6.1): off by default ----
+
+    private suspend fun <T> until(timeoutMs: Long = 20_000, f: () -> T?): T = withTimeout(timeoutMs) {
+        var v = f()
+        while (v == null) { delay(20); v = f() }
+        v
+    }
+
+    private fun envOff(block: suspend (SandboxEnv, ManualClock) -> Any?) {
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val clock = ManualClock()
+            try { block(SandboxEnv(scope, gateClock = clock, autoFeed = false), clock) } finally { scope.cancel() }
+        }
+    }
+
+    @Test fun withTheLockOffSpeedNeverLocksAndNothingNagsThenTheSwitchReengagesIt() = envOff { e, clock ->
+        assertEquals(UiMode.Normal, e.driving.mode.value) // no Checking Glance after the start
+        e.driveAt(95.0); clock.mono += 1_000; e.driveAt(95.0)
+        assertEquals(UiMode.Normal, e.driving.mode.value)
+        assertEquals(DrivingReason.LockOff, e.driving.status.value.reason)
+        e.presenter.onToggleEdit()
+        until { e.presenter.state.value.takeIf { it.editMode } }
+        e.gpsLost.value = true; e.feed(); clock.mono += 120_000; e.feed()
+        assertTrue("no GPS unknown nag", !e.driving.status.value.unknown)
+        e.gpsLost.value = false
+        // the owner turns the lock on (parked tab, Normal mode): Checking, then a fast car locks
+        e.settingsPresenter.onDrivingLock(true)
+        until { e.driving.status.value.takeIf { it.reason == DrivingReason.Checking } }
+        e.driveAt(80.0)
+        until { e.presenter.state.value.takeIf { it.mode == UiMode.Glance && !it.editMode } }
+        // while moving with the lock on the switch cannot be flipped from the presenter
+        e.settingsPresenter.onDrivingLock(false)
+        delay(200)
+        assertTrue(e.settingsStore.settings.value.drivingLock)
+        assertEquals(UiMode.Glance, e.driving.mode.value)
+        // the briefing works in both states
+        e.briefing.onBrief()
+        until { e.briefing.state.value.takeIf { it.phase != BriefingPhase.Idle } }
     }
 }

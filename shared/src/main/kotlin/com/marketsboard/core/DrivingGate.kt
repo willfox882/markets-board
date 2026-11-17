@@ -13,6 +13,9 @@ import kotlinx.coroutines.launch
 
 /** Why the gate is in its current mode. Shown in Settings (Driving section) so a lock is never a mystery. */
 enum class DrivingReason {
+    /** The "Driving lock" setting is off (the default): always Normal, the GPS is not used. */
+    LockOff,
+
     /** A valid fix says the truck is faster than the lock speed. Glance. */
     Moving,
 
@@ -86,7 +89,9 @@ data class DrivingConfig(
 )
 
 /**
- * The driving safety gate: GPS speed samples in, [UiMode] out. Pure Kotlin, time from an injected monotonic [Clock]
+ * The driving safety gate: GPS speed samples in, [UiMode] out. It only works while the owner's "Driving lock" setting is on
+ * ([lockEnabled], default off): with the lock off the output is ALWAYS Normal ([DrivingReason.LockOff], never "unknown"), samples
+ * are ignored, and turning it on starts Checking from scratch. Everything below describes the lock-on behaviour. Pure Kotlin, time from an injected monotonic [Clock]
  * (the wall clock is never read, so a clock jump cannot unlock anything).
  *
  * The safety principle: the screen is read while PARKED; moving means audio only; NOT KNOWING is treated as moving.
@@ -117,8 +122,10 @@ class DrivingGate(
     passenger: Boolean = false,
     permission: Boolean = true,
     locationOn: Boolean = true,
+    lockEnabled: Boolean = false,
 ) {
     private val lock = Any()
+    private var lockEnabled = lockEnabled
     private var passenger = passenger
     private var permission = permission
     private var locationOn = locationOn
@@ -147,6 +154,17 @@ class DrivingGate(
 
     init { publish(clock.monoMs()) }
 
+    /** The "Driving lock" setting. Off: Normal at any speed and all samples are forgotten. On: Checking starts again (nothing from before is trusted). */
+    fun setLockEnabled(on: Boolean) = synchronized(lock) {
+        if (on != lockEnabled) {
+            val now = clock.monoMs()
+            clearSamples()
+            lockEnabled = on
+            if (on) startChecking(now)
+            publish(now)
+        }
+    }
+
     fun setPassenger(on: Boolean) = synchronized(lock) {
         passenger = on
         publish(clock.monoMs())
@@ -172,7 +190,7 @@ class DrivingGate(
         val now = clock.monoMs()
         lostExplicit = false; everFix = false; lastSpeed = null; lastFixMono = null; slowSince = null; recent.clear(); aboveCount = 0
         parkedConfirmed = false
-        startChecking(now)
+        if (lockEnabled) startChecking(now) else checking = false
         publish(now)
     }
 
@@ -183,6 +201,7 @@ class DrivingGate(
     fun onSpeed(kmh: Double?, reliable: Boolean = true) = synchronized(lock) {
         val now = clock.monoMs()
         when {
+            !lockEnabled -> Unit // the lock is off: nothing is tracked
             kmh == null -> { lostExplicit = true; slowSince = null; recent.clear(); aboveCount = 0 } // a reported loss also ends the quiet period
             !isPlausible(kmh) -> Unit // a bad sample is not a fix: it neither refreshes nor unlocks anything
             !permission || !locationOn -> Unit // without permission nothing is trusted
@@ -279,6 +298,7 @@ class DrivingGate(
         }
         val speed = if (valid) lastSpeed else null
         val s = when {
+            !lockEnabled -> DrivingStatus(UiMode.Normal, DrivingReason.LockOff, null)
             passenger -> DrivingStatus(UiMode.Normal, DrivingReason.Passenger, speed)
             !permission -> DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing, null)
             !locationOn -> DrivingStatus(UiMode.Normal, DrivingReason.LocationOff, null)
@@ -304,6 +324,7 @@ class DrivingGate(
 object DrivingTexts {
     /** One short line: what the gate is doing. */
     fun reason(r: DrivingReason): String = when (r) {
+        DrivingReason.LockOff -> "Driving lock is off"
         DrivingReason.Moving -> "Moving: glance view only"
         DrivingReason.StoppedRecently -> "Stopped: unlocking soon"
         DrivingReason.NoSignalWhileMoving -> "No GPS signal: staying locked"
@@ -322,6 +343,7 @@ object DrivingTexts {
         DrivingReason.Moving, DrivingReason.StoppedRecently, DrivingReason.NoSignalWhileMoving -> "Locked"
         DrivingReason.Checking -> "Checking"
         DrivingReason.Passenger -> "Passenger"
+        DrivingReason.LockOff -> "Off"
         DrivingReason.Parked, DrivingReason.ParkedConfirmed -> "Parked"
         else -> "Unknown"
     }
@@ -333,13 +355,15 @@ object DrivingTexts {
 }
 
 /**
- * Keeps the gate in step with the permission and the passenger setting: applies both now, then on every change, and lets
+ * Keeps the gate in step with the driving lock, the permission and the passenger setting: applies both now, then on every change, and lets
  * Passenger mode switch the setting off when it expires. Shared by the Android runtime and the sandbox.
  */
 fun DrivingGate.bind(scope: CoroutineScope, settings: StateFlow<AppSettings>, permission: StateFlow<Boolean>, onPassengerExpired: () -> Unit = {}) {
+    setLockEnabled(settings.value.drivingLock)
     setPassenger(settings.value.passengerMode)
     setPermission(permission.value)
     this.onPassengerExpired = onPassengerExpired
+    scope.launch { settings.map { it.drivingLock }.distinctUntilChanged().collect { setLockEnabled(it) } }
     scope.launch { settings.map { it.passengerMode }.distinctUntilChanged().collect { setPassenger(it) } }
     scope.launch { permission.collect { setPermission(it) } }
 }

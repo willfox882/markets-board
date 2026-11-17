@@ -351,6 +351,7 @@ class GlanceContractTest {
 
     private fun call(p: SettingsPresenter, a: SettingsAct) {
         val done: Unit = when (a) {
+            SettingsAct.SetDrivingLock -> p.onDrivingLock(true)
             SettingsAct.SetPassenger -> p.onPassengerMode(true)
             SettingsAct.SetVoice -> p.onVoice(false)
             SettingsAct.SetSpeechRate -> p.onSpeechRate(0.8f)
@@ -363,7 +364,7 @@ class GlanceContractTest {
 
     @Test fun inGlanceNoSettingCanChangeAndPassengerModeCannotDefeatTheLock() = runTest {
         val clock = FakeClock()
-        val gate = DrivingGate(clock)
+        val gate = DrivingGate(clock, lockEnabled = true)
         val store = AppSettingsStore(File(tempDir(), "settings.json"), clock)
         val loc = CountingLocation()
         val p = SettingsPresenter(backgroundScope, store, gate, loc, io = Dispatchers.Unconfined)
@@ -380,7 +381,7 @@ class GlanceContractTest {
         runCurrent()
         assertEquals(UiMode.Normal, gate.mode.value)
         for (act in SettingsAct.entries) { call(p, act); runCurrent() }
-        assertEquals(AppSettings(passengerMode = true, voiceEnabled = false, speechRate = 0.8f, includeNews = false, mediaKeyTrigger = true), store.settings.value)
+        assertEquals(AppSettings(drivingLock = true, passengerMode = true, voiceEnabled = false, speechRate = 0.8f, includeNews = false, mediaKeyTrigger = true), store.settings.value)
         assertEquals(1, loc.requests)
     }
 

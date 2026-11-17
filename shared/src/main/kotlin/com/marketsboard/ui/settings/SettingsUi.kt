@@ -21,6 +21,7 @@ data class SettingsUiState(
 
 /** Every user action of the Settings tab. The presenter implements it; all of them are blocked in Glance. */
 interface SettingsActions {
+    fun onDrivingLock(on: Boolean) {}
     fun onPassengerMode(on: Boolean) {}
     fun onVoice(on: Boolean) {}
     fun onSpeechRate(rate: Float) {}

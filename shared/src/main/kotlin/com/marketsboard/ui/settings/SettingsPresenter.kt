@@ -19,8 +19,8 @@ import kotlinx.coroutines.launch
 
 /**
  * State and actions of the Settings tab over [AppSettingsStore]. A change reaches memory at once (switches react) and is
- * written on [io]. Passenger mode reaches the [DrivingGate] through `DrivingGate.bind`, not from here. While the truck
- * moves (Glance) EVERY action is a no-op: in particular Passenger mode cannot be switched on to defeat the lock.
+ * written on [io]. The driving lock and Passenger mode reach the [DrivingGate] through `DrivingGate.bind`, not from here. While the
+ * truck moves with the lock on (Glance) EVERY action is a no-op: in particular Passenger mode cannot be switched on to defeat the lock.
  */
 class SettingsPresenter(
     private val scope: CoroutineScope,
@@ -47,6 +47,9 @@ class SettingsPresenter(
         store.update(f)
         scope.launch(io) { store.flush() }
     }
+
+    /** Passenger mode only means something while the lock is on, so the lock switch always leaves it off when the lock goes off. While the lock is on and the truck moves this is blocked like every action. */
+    override fun onDrivingLock(on: Boolean) = guarded(SettingsAct.SetDrivingLock) { change { it.copy(drivingLock = on, passengerMode = it.passengerMode && on) } }
 
     override fun onPassengerMode(on: Boolean) = guarded(SettingsAct.SetPassenger) { change { it.copy(passengerMode = on) } }
 

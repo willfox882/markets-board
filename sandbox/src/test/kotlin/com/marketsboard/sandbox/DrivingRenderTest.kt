@@ -51,7 +51,7 @@ class DrivingRenderTest {
     private val about = AboutInfo("0.1.0", "debug 1")
 
     private fun settings(driving: DrivingStatus, granted: Boolean = true) =
-        SettingsUiState(driving = driving, locationGranted = granted, speech = SpeakerAvailability.Available, about = about)
+        SettingsUiState(settings = AppSettings(drivingLock = true), driving = driving, locationGranted = granted, speech = SpeakerAvailability.Available, about = about)
 
     private fun pixels(w: Int, h: Int, content: @Composable () -> Unit): IntArray {
         val scene = ImageComposeScene(width = w, height = h, density = Density(1f)) { MarketsBoardTheme { content() } }
@@ -76,9 +76,10 @@ class DrivingRenderTest {
         Case("markets gps unknown", MbTab.Markets, F.normal(), NewsUiState(), DrivingStatus(UiMode.Normal, DrivingReason.NoFixYet), BriefingUiState(), settings(parked)),
         Case("glance news", MbTab.News, F.glance(), F.newsGlance(), moving, BriefingUiState(), settings(moving)),
         Case("glance news speaking", MbTab.News, F.glance(), F.newsGlance(), moving, speaking, settings(moving)),
+        Case("settings lock off", MbTab.Settings, F.normal(), NewsUiState(), DrivingStatus(UiMode.Normal, DrivingReason.LockOff), BriefingUiState(), settings(DrivingStatus(UiMode.Normal, DrivingReason.LockOff)).copy(settings = AppSettings())),
         Case("settings parked", MbTab.Settings, F.normal(), NewsUiState(), parked, BriefingUiState(), settings(parked)),
         Case("settings no permission", MbTab.Settings, F.normal(), NewsUiState(), DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), BriefingUiState(), settings(DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), granted = false)),
-        Case("settings passenger", MbTab.Settings, F.normal(), NewsUiState(), passenger, BriefingUiState(), settings(passenger).copy(settings = AppSettings(passengerMode = true))),
+        Case("settings passenger", MbTab.Settings, F.normal(), NewsUiState(), passenger, BriefingUiState(), settings(passenger).copy(settings = AppSettings(drivingLock = true, passengerMode = true))),
         Case("normal speaking", MbTab.Markets, F.normal(), NewsUiState(), parked, speaking, settings(parked)),
         Case("normal preparing", MbTab.News, F.normal(), F.news(), parked, preparing, settings(parked)),
         Case("normal text fallback", MbTab.Markets, F.normal(), NewsUiState(), parked, text, settings(parked)),
@@ -149,6 +150,7 @@ class DrivingRenderTest {
         }
         // the healthy parked Settings tab has no colour at all, the unknown (no permission) one has amber warnings
         assertEquals(0, pixels(810, 1440, root(cases().first { it.name == "settings parked" })).count { chroma(it) > 20 })
+        assertEquals("the lock-off Settings (the default) has no colour at all", 0, pixels(810, 1440, root(cases().first { it.name == "settings lock off" })).count { chroma(it) > 20 })
         val warn = pixels(810, 1440, root(cases().first { it.name == "settings no permission" }))
         assertTrue(warn.count { chroma(it) > 20 && hueDistance(hue(it), amber) < 25 } > 200)
     }
@@ -172,6 +174,7 @@ class DrivingRenderTest {
             override fun onOpen(id: String) { calls += "openNews" }
         }
         val settings = object : SettingsActions {
+            override fun onDrivingLock(on: Boolean) { calls += "lock" }
             override fun onPassengerMode(on: Boolean) { calls += "passenger" }
             override fun onVoice(on: Boolean) { calls += "voice" }
             override fun onGrantLocation() { calls += "grant" }
@@ -234,6 +237,17 @@ class DrivingRenderTest {
         val b2 = pixels(440, 900, root(normal))
         val a2 = tapAll(normal, Rec(), xs = 340 until 430 step 30, ys = 845 until 890 step 15)
         assertTrue("Settings opens when parked", !b2.contentEquals(a2))
+    }
+
+    @Test fun theDrivingLockSwitchIsTappableAndPassengerIsHiddenWhileTheLockIsOff() {
+        val c = cases().first { it.name == "settings lock off" }
+        val rec = Rec()
+        tapAll(c, rec, xs = 340 until 430 step 20, ys = 90 until 300 step 10)
+        assertTrue("lock switch: ${rec.calls}", "lock" in rec.calls)
+        assertTrue("Passenger mode means nothing while the lock is off: ${rec.calls}", "passenger" !in rec.calls)
+        val on = Rec()
+        tapAll(cases().first { it.name == "settings parked" }, on, xs = 340 until 430 step 20, ys = 90 until 300 step 10)
+        assertTrue("with the lock on both switches exist: ${on.calls}", "lock" in on.calls && "passenger" in on.calls)
     }
 
     @Test fun theSettingsTabIsNotShownWhileDrivingEvenIfItWasOpen() {

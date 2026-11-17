@@ -45,6 +45,7 @@ class PaneRenderTest {
     private val T = ToolsFixtures
     private val moving = DrivingStatus(UiMode.Glance, DrivingReason.Moving, 62.0)
     private val parked = DrivingStatus(UiMode.Normal, DrivingReason.Parked, 0.0)
+    private val lockOff = DrivingStatus(UiMode.Normal, DrivingReason.LockOff)
     private val passenger = DrivingStatus(UiMode.Normal, DrivingReason.Passenger, 48.0)
     private val speaking = BriefingUiState(BriefingPhase.Speaking, caption = "X E Q T, 41 dollars 25 cents, down 4.6 percent. And a much longer second half of the sentence so it wraps.", label = "XEQT", index = 3, total = 9)
     private val preparing = BriefingUiState(BriefingPhase.Preparing)
@@ -57,7 +58,7 @@ class PaneRenderTest {
         val settings: SettingsUiState = SettingsUiState(), val tools: ToolsUiState = ToolsUiState(), val offline: Boolean = false,
     )
 
-    private fun settings(d: DrivingStatus, granted: Boolean = true) = SettingsUiState(driving = d, locationGranted = granted, speech = SpeakerAvailability.Available, about = about)
+    private fun settings(d: DrivingStatus, granted: Boolean = true) = SettingsUiState(settings = AppSettings(drivingLock = true), driving = d, locationGranted = granted, speech = SpeakerAvailability.Available, about = about)
 
     private fun cases(): List<Case> = listOf(
         Case("markets", F.normal()), Case("markets mixed", F.mixed()), Case("markets six", F.six()), Case("markets skew stale", F.skewAndStale()),
@@ -73,8 +74,9 @@ class PaneRenderTest {
         Case("news detail", F.normal(), MbTab.News, F.newsDetail()),
         Case("settings", F.normal(), MbTab.Settings, driving = parked, settings = settings(parked)),
         Case("settings no permission", F.normal(), MbTab.Settings, driving = DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), settings = settings(DrivingStatus(UiMode.Normal, DrivingReason.PermissionMissing), false)),
-        Case("settings passenger", F.normal(), MbTab.Settings, driving = passenger, settings = settings(passenger).copy(settings = AppSettings(passengerMode = true))),
+        Case("settings passenger", F.normal(), MbTab.Settings, driving = passenger, settings = settings(passenger).copy(settings = AppSettings(drivingLock = true, passengerMode = true))),
         Case("settings main", F.normal(), MbTab.Settings, driving = parked, settings = settings(parked)),
+        Case("settings lock off", F.normal(), MbTab.Settings, driving = lockOff, settings = settings(lockOff).copy(settings = AppSettings())),
         Case("feeds", F.normal(), MbTab.Settings, tools = T.feeds(), settings = settings(parked)),
         Case("feeds selected", F.normal(), MbTab.Settings, tools = T.feedsSelected(), settings = settings(parked)),
         Case("feeds add", F.normal(), MbTab.Settings, tools = T.feedsAdd(), settings = settings(parked)),
