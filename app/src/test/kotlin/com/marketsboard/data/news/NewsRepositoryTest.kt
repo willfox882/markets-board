@@ -412,6 +412,29 @@ class NewsRepositoryTest {
         assertEquals(30 * 60_000L, r2.repo.state.value.feedStates.single().retryInMs)
     }
 
+    @Test fun aForcedPassDuringAnOutageDoesNotEraseARateLimitWait() = runTest {
+        var aHits = 0
+        var bOffline = false
+        val r = rig(this, listOf(FEED_B, FEED_A), config = NewsConfig(maxConcurrent = 1)) { url, _ ->
+            when {
+                url.contains("/a.xml") -> { aHits++; HttpResponse(429, "slow down", retryAfterMs = 10 * 60_000L) }
+                bOffline -> HttpResponse(0, failure = com.marketsboard.data.model.FetchResult.Err(com.marketsboard.data.model.ErrorKind.Network, "x"), offline = true)
+                else -> ok(xml("From b"))
+            }
+        }
+        r.repo.refresh()
+        assertEquals(1, aHits)
+        bOffline = true
+        r.clock.advance(30_000)
+        r.repo.refresh(force = true) // b fails with no network first, so a takes the offline shortcut without being fetched
+        assertEquals(1, aHits)
+        r.clock.advance(30_000)
+        bOffline = false
+        r.repo.refresh(afterOutage = true) // the network is back: the wait of a (10 minutes) must still be there
+        assertEquals("a is still inside its Retry-After", 1, aHits)
+        assertTrue(r.repo.state.value.feedStates.first { it.id == "a" }.retryInMs > 8 * 60_000L)
+    }
+
     @Test fun oneFailingFeedDoesNotHideTheOthers() = runTest {
         val r = rig(this, listOf(FEED_A, FEED_B)) { url, _ -> if (url.contains("/a.xml")) HttpResponse(500, "") else ok(xml("From b")) }
         r.repo.refresh()

@@ -6,14 +6,14 @@ Markets Board is a normal Android app (package `com.marketsboard`, Android 8.0 o
 
 Every push builds them in GitHub Actions (workflow `build`). Open the run, then Artifacts:
 
-- `release-<commit>`: `markets-board-0.6.2-debug.apk`, `markets-board-sandbox-0.6.2.jar` and `SHA256SUMS.txt`.
+- `release-<commit>`: `markets-board-0.6.3-debug.apk`, `markets-board-sandbox-0.6.3.jar` and `SHA256SUMS.txt`.
 - `screenshots`: PNGs of every screen at full, half and strip size.
 
 Or build it yourself: `./gradlew assembleDebug`, the APK is `app/build/outputs/apk/debug/app-debug.apk`.
 
 **About signing.** There is no release keystore. Every build (your own and CI) is signed with ONE fixed debug key that is committed in the repo (`app/debug.keystore`, the standard `androiddebugkey` with password `android`; it protects nothing, it only keeps the signature the same). So from version 0.6.2 on you can install any newer APK over the old one, from any machine, and the watchlist, feeds and settings stay. One-time exception: if you installed an earlier build made by CI (0.6.1 or older), it was signed with a random key that no longer exists; Android then refuses the update with "signatures do not match", so uninstall it once first (the watchlist and feed list live inside the app and are lost, re-adding them takes a minute). A build made on your own computer before this change has your own machine's debug key and needs the same one-time uninstall.
 
-Check the download against `SHA256SUMS.txt` if you like: `sha256sum markets-board-0.6.2-debug.apk`.
+Check the download against `SHA256SUMS.txt` if you like: `sha256sum markets-board-0.6.3-debug.apk`.
 
 ## 2. Install
 
@@ -21,7 +21,7 @@ Check the download against `SHA256SUMS.txt` if you like: `sha256sum markets-boar
 1. On the unit open Settings, About, and tap "Build number" seven times to enable Developer options. In Developer options switch on USB debugging.
 2. Connect the computer to the unit's USB port that supports data (on some units it is the one behind the glovebox or the one marked for service).
 3. `adb devices` must list the unit; accept the prompt on the screen.
-4. `adb install -r markets-board-0.6.2-debug.apk`  (`-r` keeps your data when updating).
+4. `adb install -r markets-board-0.6.3-debug.apk`  (`-r` keeps your data when updating).
 5. Start it from the launcher, or `adb shell am start -n com.marketsboard/.MainActivity`.
 
 Over Wi-Fi instead of USB (same network, after one USB connection): `adb tcpip 5555`, then `adb connect <unit address>:5555`.

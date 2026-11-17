@@ -95,19 +95,29 @@ class NewsPoller(
         }
     }
 
-    /** Every [NewsPollConfig.pollMs], but every [NewsPollConfig.failedPollMs] while a feed is failing, so the app recovers by itself within about a minute. */
+    /**
+     * A FULL pass every [NewsPollConfig.pollMs]. While a feed is failing the loop also wakes every [NewsPollConfig.failedPollMs], but
+     * then only retries the FAILED feeds (their own backoff and Retry-After still apply), so one dead feed never makes the healthy
+     * ones refetch every minute. This is what lets the offline line clear within about a minute without a network signal.
+     */
     private suspend fun loopPolls() {
+        var sinceFull = 0L // nominal time since the last full pass (waits, not the clock, so the sandbox time scale needs no special case)
         while (true) {
             val failing = repo.state.value.feedStates.any { it.status == com.marketsboard.data.news.FeedStatus.Error }
-            delay(scaled(if (failing) minOf(config.pollMs, config.failedPollMs) else config.pollMs))
-            safely { pollOnce() }
+            val untilFull = (config.pollMs - sinceFull).coerceAtLeast(1)
+            val wait = if (failing) minOf(untilFull, config.failedPollMs) else untilFull
+            delay(scaled(wait))
+            sinceFull += wait
+            val full = sinceFull >= config.pollMs
+            if (full) sinceFull = 0
+            safely { pollOnce(full) }
         }
     }
 
     /** One automatic pass, unless the platform says there is no network at all (then it waits for the network signal). */
-    private suspend fun pollOnce() {
+    private suspend fun pollOnce(full: Boolean = true) {
         if (network.status.value == NetworkStatus.Offline) { outage.skippedWhileOffline(); return }
-        if (outage.pending()) returnPass() else repo.refresh()
+        if (outage.pending()) returnPass() else if (full) repo.refresh() else repo.refresh(onlyFailed = true)
     }
 
     /** The network is back after an outage: everything that is due, plus failed feeds; backoff and Retry-After of the servers are still honoured. */

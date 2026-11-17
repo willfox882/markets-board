@@ -9,6 +9,7 @@ import com.marketsboard.data.model.Currencies
 import com.marketsboard.data.model.Quote
 import com.marketsboard.data.model.WatchItem
 import com.marketsboard.data.repo.QuoteRepository
+import com.marketsboard.refresh.ConnectivityRules
 import com.marketsboard.data.repo.QuoteState
 import com.marketsboard.data.repo.QuoteStatus
 import com.marketsboard.data.model.ErrorKind
@@ -77,7 +78,7 @@ object UiMapper {
 
     /**
      * Header: Live (green) only when every row is Fresh and at least one market is open; Closed (grey) when all are
-     * Fresh and every market is closed; Delayed or Offline (amber) when anything is stale or failed; Loading (grey)
+     * Fresh and every market is closed; Delayed or Offline (amber) when anything is stale or failed (Offline only by the shell's rule, [ConnectivityRules.quotesDown]: every symbol failed with a no-network error; a timeout is Delayed); Loading (grey)
      * while nothing has loaded yet. "Updated" is the newest provider time among the held quotes, in ITS exchange zone.
      */
     fun header(items: List<WatchItem>, states: Map<String, QuoteState>, nowWallMs: Long): HeaderUi {
@@ -91,19 +92,20 @@ object UiMapper {
         if (held.isEmpty()) {
             val failed = st.any { it?.lastError != null || it?.status is QuoteStatus.Error }
             return if (failed) {
-                val offline = st.mapNotNull { it?.lastError?.kind }.any { ErrorText.isOffline(it) }
-                HeaderUi(LiveKind.Offline, if (offline) "Offline" else "Delayed", "")
+                // The same rule as the shell's offline line: every symbol failed for lack of a network (a timeout is "Delayed").
+                val offline = ConnectivityRules.quotesDown(states, items.map { it.symbol })
+                HeaderUi(if (offline) LiveKind.Offline else LiveKind.Delayed, if (offline) "Offline" else "Delayed", "")
             } else {
                 HeaderUi(LiveKind.Loading, "Loading", "")
             }
         }
-        val failedKinds = st.mapNotNull { it?.lastError?.kind }
+        val allDown = ConnectivityRules.quotesDown(states, items.map { it.symbol })
         // A row that is still loading does not make the header "Delayed"; a failed or old one does.
         val problem = st.any { s ->
             s != null && (s.lastError != null || s.status is QuoteStatus.Error || (s.quote != null && s.status !is QuoteStatus.Fresh))
         }
         return when {
-            failedKinds.isNotEmpty() && failedKinds.all { ErrorText.isOffline(it) } -> HeaderUi(LiveKind.Offline, "Offline", updated)
+            allDown -> HeaderUi(LiveKind.Offline, "Offline", updated)
             problem -> HeaderUi(LiveKind.Delayed, "Delayed", updated)
             held.any { MarketPhase.isActive(it.quote, nowWallMs) } -> HeaderUi(LiveKind.Live, "Live", updated)
             else -> HeaderUi(LiveKind.Closed, "Markets closed", updated)

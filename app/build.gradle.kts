@@ -14,8 +14,8 @@ android {
         applicationId = "com.marketsboard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.6.2"
+        versionCode = 9
+        versionName = "0.6.3"
     }
 
     // A FIXED debug key committed to the repo (standard alias and passwords, it protects nothing): every local and CI build is signed

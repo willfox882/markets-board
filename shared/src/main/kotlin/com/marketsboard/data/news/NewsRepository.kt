@@ -250,7 +250,15 @@ class NewsRepository(
         val offline = pass.offline
         if (offline != null) {
             // The pass already learned there is no network: do not wait for another timeout, do not escalate backoff.
-            synchronized(lock) { rt.getOrPut(f.id) { Rt() }.apply { status = FeedStatus.Error; lastError = NewsText.feedError(offline); lastKind = offline } }
+            synchronized(lock) {
+                rt.getOrPut(f.id) { Rt() }.apply {
+                    status = FeedStatus.Error
+                    // A feed waiting out a 429 or a server error keeps that reason (and so its wait): relabelling it as a network failure
+                    // would let the return pass clear the wait. Only a feed with no such wait takes the network reason.
+                    val keepsWait = nextTryMono > clock.monoMs() && lastKind != null && lastKind != ErrorKind.Network && lastKind != ErrorKind.Timeout
+                    if (!keepsWait) { lastError = NewsText.feedError(offline); lastKind = offline }
+                }
+            }
             publish()
             return
         }

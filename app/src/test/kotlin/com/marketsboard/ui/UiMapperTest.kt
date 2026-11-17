@@ -188,11 +188,37 @@ class UiMapperTest {
         assertEquals(LiveKind.Delayed, UiMapper.header(listOf(xeqt, msft), err, now).kind)
     }
 
-    @Test fun headerSaysOfflineWhenFailuresAreConnectionFailures() {
-        val st = mapOf(key("XEQT.TO") to failed(q(), ErrorKind.Network), key("MSFT") to failed(null, ErrorKind.Timeout))
+    @Test fun headerSaysOfflineWhenEverySymbolFailedWithNoNetwork() {
+        val st = mapOf(key("XEQT.TO") to failed(q(), ErrorKind.Network), key("MSFT") to failed(null, ErrorKind.Network))
         val h = UiMapper.header(listOf(xeqt, msft), st, now)
         assertEquals(LiveKind.Offline, h.kind)
         assertEquals("Offline", h.label)
+    }
+
+    @Test fun oneTimedOutSymbolWhileAnotherIsLiveIsNotOfflineAndATimeoutAloneNeverIs() {
+        val one = mapOf(key("XEQT.TO") to fresh(q()), key("MSFT") to failed(q("MSFT"), ErrorKind.Timeout))
+        assertEquals(LiveKind.Delayed, UiMapper.header(listOf(xeqt, msft), one, now).kind)
+        val oneNet = mapOf(key("XEQT.TO") to fresh(q()), key("MSFT") to failed(q("MSFT"), ErrorKind.Network))
+        assertEquals("a single failing symbol is the ordinary Delayed state", LiveKind.Delayed, UiMapper.header(listOf(xeqt, msft), oneNet, now).kind)
+        val allTimeout = mapOf(key("XEQT.TO") to failed(q(), ErrorKind.Timeout), key("MSFT") to failed(q("MSFT"), ErrorKind.Timeout))
+        assertEquals(LiveKind.Delayed, UiMapper.header(listOf(xeqt, msft), allTimeout, now).kind)
+        val none = mapOf(key("XEQT.TO") to failed(null, ErrorKind.Timeout), key("MSFT") to failed(null, ErrorKind.Timeout))
+        assertEquals("Delayed", UiMapper.header(listOf(xeqt, msft), none, now).label)
+    }
+
+    @Test fun theHeaderAndTheShellBannerUseTheSameRule() {
+        val items = listOf(xeqt, msft)
+        val cases = listOf(
+            mapOf(key("XEQT.TO") to failed(q(), ErrorKind.Network), key("MSFT") to failed(q("MSFT"), ErrorKind.Network)),
+            mapOf(key("XEQT.TO") to fresh(q()), key("MSFT") to failed(q("MSFT"), ErrorKind.Network)),
+            mapOf(key("XEQT.TO") to failed(q(), ErrorKind.Timeout), key("MSFT") to failed(q("MSFT"), ErrorKind.Timeout)),
+            mapOf(key("XEQT.TO") to fresh(q()), key("MSFT") to failed(q("MSFT"), ErrorKind.Timeout)),
+            mapOf(key("XEQT.TO") to failed(null, ErrorKind.Network), key("MSFT") to failed(null, ErrorKind.Network)),
+        )
+        for (st in cases) {
+            val banner = com.marketsboard.refresh.ConnectivityRules.marketsOffline(com.marketsboard.refresh.NetworkStatus.Online, st, items.map { it.symbol })
+            assertEquals("header and banner disagree for $st", banner, UiMapper.header(items, st, now).kind == LiveKind.Offline)
+        }
     }
 
     @Test fun headerWithNothingLoadedYetIsLoadingAndNeverLive() {

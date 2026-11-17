@@ -42,7 +42,7 @@ object ScreenshotFixtures {
     const val NOW = 1_794_851_100_000L
 
     /** The About info every screenshot and render test shows (one place, so a version bump is one edit). */
-    val ABOUT = com.marketsboard.ui.settings.AboutInfo("0.6.2", "debug 8")
+    val ABOUT = com.marketsboard.ui.settings.AboutInfo("0.6.3", "debug 9")
     private val clock = Clock { NOW }
     private val fake = FakeMarketDataProvider(clock)
 

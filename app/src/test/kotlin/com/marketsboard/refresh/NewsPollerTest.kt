@@ -266,6 +266,24 @@ class NewsPollerTest {
         assertTrue("calls=${r.calls}", r.calls <= 2)
     }
 
+    @Test fun oneDeadFeedNeverMakesTheHealthyFeedsRefetchEveryMinute() = runTest {
+        val deadHits = mutableListOf<Long>()
+        val r = rig(listOf(feed("a"), feed("b"), feed("dead"))) { url ->
+            if (url.contains("/dead.xml")) { deadHits += testScheduler.currentTime; HttpResponse(503, "") } else page("Item ${url.length}", base = 1_699_999_000_000L)
+        }
+        r.gate.value = true
+        runCurrent()
+        assertEquals(3, r.calls)
+        advanceTimeBy(9 * 60_000L + 30_000L) // inside the 10 minute poll period
+        runCurrent()
+        val healthy = r.fetcher.urls.count { !it.contains("/dead.xml") }
+        assertEquals("healthy feeds are fetched once, not every minute", 2, healthy)
+        assertTrue("the dead feed follows its own backoff (1, 2, 4 min), not every minute: $deadHits", deadHits.size in 3..4)
+        advanceTimeBy(60_000L) // the full pass at ten minutes
+        runCurrent()
+        assertEquals("a full pass every pollMs", 4, r.fetcher.urls.count { !it.contains("/dead.xml") })
+    }
+
     @Test fun afterAnOutageAFeedThatJustFailedIsRetriedAtOnceNotAfterTheFiveSecondGuard() = runTest {
         var up = false
         val r = rig(listOf(feed("a"))) { _ -> if (up) page("Back", base = 1_699_999_000_000L) else HttpResponse(0, failure = com.marketsboard.data.model.FetchResult.Err(com.marketsboard.data.model.ErrorKind.Network, "x"), offline = true) }
